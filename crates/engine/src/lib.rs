@@ -522,7 +522,9 @@ impl Session {
     }
 
     pub fn sync_tools_mask_target(&mut self) {
-        let mask = self.active().is_some_and(|st| st.channel_view.target == crate::channel_cmds::ChannelTarget::LayerMask);
+        let mask = self.active().is_some_and(|st| {
+            matches!(st.channel_view.target, crate::channel_cmds::ChannelTarget::LayerMask | crate::channel_cmds::ChannelTarget::FilterMask)
+        });
         self.tools.target_mask(mask);
     }
 
@@ -706,6 +708,7 @@ impl Session {
         if let (Some(k), Some(id)) = (restrict, active) {
             channel_cmds::restrict_to_color(&before, &mut doc, id, k);
         }
+        smart_cmds::refresh_edited_filter_masks(&before, &mut doc)?;
         st.doc = Arc::new(doc);
         st.active_layer = active;
         fix_selection(st);

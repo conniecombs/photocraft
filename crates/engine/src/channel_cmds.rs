@@ -44,6 +44,8 @@ pub enum ChannelTarget {
     LayerMask,
     /// The active layer's vector mask.
     VectorMask,
+    /// The active smart object's filter mask.
+    FilterMask,
 }
 
 /// Per-document Channels panel state: the target and the eye toggles. Not part of history.
@@ -129,6 +131,13 @@ pub(crate) fn fix_view(st: &mut DocState) {
                 v.target = ChannelTarget::Composite;
             }
             ChannelTarget::VectorMask if st.active_layer.and_then(|id| st.doc.layer(id)).is_none_or(|l| l.vector_mask.is_none()) => {
+                v.target = ChannelTarget::Composite;
+            }
+            ChannelTarget::FilterMask
+                if st.active_layer.and_then(|id| st.doc.layer(id)).is_none_or(|l| {
+                    !matches!(&l.content, LayerContent::Smart(sm) if !sm.smart_filters.is_empty() || sm.filter_mask.is_some())
+                }) =>
+            {
                 v.target = ChannelTarget::Composite;
             }
             _ => {}
@@ -315,7 +324,7 @@ fn luminosity(rgba: [f32; 4]) -> f32 {
 // Channel references
 
 /// A channel named in params: `"composite"`, a colour name (`"red"`, `"cyan"`, `"lightness"`…),
-/// an alpha index (number) or name, `"quickMask"`, `"selection"`, `"transparency"`, `"mask"`.
+/// an alpha index (number) or name, `"quickMask"`, `"selection"`, `"transparency"`, `"mask"`, `"filterMask"`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChanRef {
     Composite,
@@ -327,6 +336,8 @@ pub enum ChanRef {
     LayerMask,
     /// The layer's vector mask, rasterized (⌘-click its thumbnail, #196).
     VectorMask,
+    /// The smart object's filter mask.
+    FilterMask,
 }
 
 pub fn parse_ref(v: &Value, doc: &Document) -> Option<ChanRef> {
@@ -349,6 +360,7 @@ pub fn parse_ref(v: &Value, doc: &Document) -> Option<ChanRef> {
                 "transparency" => return Some(ChanRef::Transparency),
                 "mask" | "layermask" => return Some(ChanRef::LayerMask),
                 "vectormask" | "vector mask" => return Some(ChanRef::VectorMask),
+                "filtermask" | "filter mask" => return Some(ChanRef::FilterMask),
                 _ => {}
             }
             if l == composite_name(mode).to_ascii_lowercase() {
@@ -481,6 +493,20 @@ fn ref_planes(doc: &Document, layer: Option<LayerId>, active: Option<LayerId>, r
             let shape = photocraft_doc::VectorMask { enabled: true, density: 1.0, feather: 0.0, ..m.clone() };
             vec![photocraft_vector::vector_mask_values(&shape, area)]
         }
+        ChanRef::FilterMask => {
+            let id = layer.or(active).ok_or_else(|| EngineError::Other("filter mask needs a layer".into()))?;
+            let l = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+            let LayerContent::Smart(sm) = &l.content else {
+                return Err(EngineError::Other(format!("layer \"{}\" is not a smart object", l.name)));
+            };
+            if let Some(m) = &sm.filter_mask {
+                vec![read_plane(&m.surface, area)]
+            } else if !sm.smart_filters.is_empty() {
+                vec![vec![1.0; area.width() as usize * area.height() as usize]]
+            } else {
+                return Err(EngineError::Other(format!("layer \"{}\" has no filter mask", l.name)));
+            }
+        }
     })
 }
 
@@ -607,6 +633,7 @@ fn mask_plane(s: &Session, p: &Value, cmd: &str) -> Result<Option<Vec<f32>>> {
 pub(crate) enum Target {
     Pixels,
     Mask,
+    FilterMask,
     Alpha(usize),
     QuickMask,
 }
@@ -615,6 +642,7 @@ pub(crate) fn target_of(p: &Value) -> Target {
     match p.get("target") {
         Some(Value::String(s)) => match s.as_str() {
             "mask" => Target::Mask,
+            "filterMask" => Target::FilterMask,
             "quickMask" => Target::QuickMask,
             _ => Target::Pixels,
         },
@@ -644,6 +672,19 @@ pub(crate) fn target_surface<'a>(doc: &'a mut Document, layer: Option<LayerId>, 
     }
 }
 
+fn default_filter_mask_surface(depth: photocraft_color::SampleType) -> &'static Surface {
+    use photocraft_color::SampleType;
+    use std::sync::LazyLock;
+    static U8: LazyLock<Surface> = LazyLock::new(|| Surface::with_default(PixelFormat::new(ColorMode::Grayscale, SampleType::U8, false), &[1.0]));
+    static U16: LazyLock<Surface> = LazyLock::new(|| Surface::with_default(PixelFormat::new(ColorMode::Grayscale, SampleType::U16, false), &[1.0]));
+    static F32: LazyLock<Surface> = LazyLock::new(|| Surface::with_default(PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false), &[1.0]));
+    match depth {
+        SampleType::U8 => &U8,
+        SampleType::U16 => &U16,
+        SampleType::F32 => &F32,
+    }
+}
+
 pub(crate) fn read_target_surface<'a>(doc: &'a Document, layer: Option<LayerId>, p: &Value) -> Result<&'a Surface> {
     match target_of(p) {
         Target::Alpha(i) => {
@@ -658,6 +699,20 @@ pub(crate) fn read_target_surface<'a>(doc: &'a Document, layer: Option<LayerId>,
         Target::Mask => {
             let id = layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
             doc.layer(id).and_then(|l| l.mask.as_ref()).map(|m| &m.surface).ok_or(EngineError::NoLayer(id))
+        }
+        Target::FilterMask => {
+            let id = layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
+            let l = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+            let LayerContent::Smart(sm) = &l.content else {
+                return Err(EngineError::Other("layer is not a smart object".into()));
+            };
+            if let Some(m) = &sm.filter_mask {
+                Ok(&m.surface)
+            } else if !sm.smart_filters.is_empty() {
+                Ok(default_filter_mask_surface(doc.depth))
+            } else {
+                Err(EngineError::Other("the smart object has no filter mask".into()))
+            }
         }
     }
 }
@@ -688,13 +743,19 @@ fn edits_mask(id: &str) -> bool {
         || crate::fill_key_cmds::IDS.contains(&id)
 }
 
-/// The precondition of `id` when `p` targets the active layer's mask (`"target":"mask"`): the
-/// layer needs a mask. None when another precondition applies.
+/// The precondition of `id` when `p` targets the active layer's mask (`"target":"mask"` or
+/// `"target":"filterMask"`): the layer needs that mask. None when another precondition applies.
 pub(crate) fn mask_target_enabled(s: &Session, id: &str, p: &Value) -> Option<std::result::Result<(), String>> {
-    if target_of(p) != Target::Mask || !edits_mask(id) {
+    let t = target_of(p);
+    if !matches!(t, Target::Mask | Target::FilterMask) || !edits_mask(id) {
         return None;
     }
-    Some(crate::active_layer_of(s).and_then(|l| if l.mask.is_some() { Ok(()) } else { Err("the active layer has no layer mask".into()) }))
+    Some(crate::active_layer_of(s).and_then(|l| match t {
+        Target::Mask if l.mask.is_some() => Ok(()),
+        Target::Mask => Err("the active layer has no layer mask".into()),
+        Target::FilterMask if matches!(&l.content, LayerContent::Smart(sm) if !sm.smart_filters.is_empty() || sm.filter_mask.is_some()) => Ok(()),
+        _ => Err("the smart object has no filter mask".into()),
+    }))
 }
 
 /// Whether command `id` edits the targeted channel or mask when its params name no `"target"`
@@ -751,6 +812,7 @@ pub(crate) fn inject_target(s: &Session, id: &str, params: Value) -> Value {
         ChannelTarget::Alpha(i) if i < st.doc.channels.len() => json!({ "channel": i }),
         ChannelTarget::Composite if st.doc.quick_mask.is_some() => json!("quickMask"),
         ChannelTarget::LayerMask => json!("mask"),
+        ChannelTarget::FilterMask => json!("filterMask"),
         // Viewing the active layer's mask (⌥-click): pixel commands edit the mask.
         ChannelTarget::Composite if crate::mask_view_cmds::current(st).is_some() => json!("mask"),
         _ => return params,
@@ -991,6 +1053,7 @@ fn load_selection(s: &mut Session, p: &Value) -> Result<Value> {
             ChannelTarget::Alpha(i) => json!(i),
             ChannelTarget::LayerMask => json!("mask"),
             ChannelTarget::VectorMask => json!("vectorMask"),
+            ChannelTarget::FilterMask => json!("filterMask"),
         };
     }
     let p = &targeted;
@@ -1000,6 +1063,7 @@ fn load_selection(s: &mut Session, p: &Value) -> Result<Value> {
     let label = match p.get("channel").and_then(|v| parse_ref(v, doc)) {
         Some(ChanRef::Transparency) => "Load Transparency",
         Some(ChanRef::LayerMask) => "Load Layer Mask",
+        Some(ChanRef::FilterMask) => "Load Filter Mask",
         _ => "Load Selection",
     };
     let selected = s.edit(label, |doc, _| {
@@ -1328,7 +1392,7 @@ fn target(s: &mut Session, t: ChannelTarget) {
                 v.color_hidden.clear();
                 v.alpha_visible.clear();
             }
-            ChannelTarget::LayerMask | ChannelTarget::VectorMask => v.color_hidden.clear(),
+            ChannelTarget::LayerMask | ChannelTarget::VectorMask | ChannelTarget::FilterMask => v.color_hidden.clear(),
             ChannelTarget::Color(k) => {
                 v.color_hidden = (0..colors).map(|c| c != k).collect();
                 v.alpha_visible.clear();
@@ -1340,7 +1404,7 @@ fn target(s: &mut Session, t: ChannelTarget) {
         }
         fix_view_now(st);
     }
-    s.tools.target_mask(t == ChannelTarget::LayerMask);
+    s.tools.target_mask(matches!(t, ChannelTarget::LayerMask | ChannelTarget::FilterMask));
 }
 
 fn parse_target(s: &Session, p: &Value, cmd: &str) -> Result<ChannelTarget> {
@@ -1363,7 +1427,17 @@ fn parse_target(s: &Session, p: &Value, cmd: &str) -> Result<ChannelTarget> {
             }
             Ok(ChannelTarget::VectorMask)
         }
-        _ => Err(bad(cmd, "`channel` must be \"composite\", \"mask\", \"vectorMask\", a colour channel name or an alpha channel")),
+        Some(ChanRef::FilterMask) => {
+            let active = crate::active_layer_of(s).map_err(|e| bad(cmd, e))?;
+            let LayerContent::Smart(sm) = &active.content else {
+                return Err(bad(cmd, "the active layer is not a smart object"));
+            };
+            if sm.smart_filters.is_empty() && sm.filter_mask.is_none() {
+                return Err(bad(cmd, "the smart object has no filter mask"));
+            }
+            Ok(ChannelTarget::FilterMask)
+        }
+        _ => Err(bad(cmd, "`channel` must be \"composite\", \"mask\", \"vectorMask\", \"filterMask\", a colour channel name or an alpha channel")),
     }
 }
 

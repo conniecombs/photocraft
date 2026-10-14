@@ -520,6 +520,28 @@ fn refresh_or_fail_in(doc: &mut Document, id: LayerId, ctx: &JobCtx) -> Result<(
     }
 }
 
+/// Re-render any smart object whose filter mask changed in `after` without its cache having been
+/// updated yet (painting, filling, adjusting or pasting into `"target":"filterMask"`, #215).
+pub(crate) fn refresh_edited_filter_masks(before: &Document, after: &mut Document) -> Result<()> {
+    let mut ids = Vec::new();
+    for (_, _, l) in after.walk() {
+        let LayerContent::Smart(sm) = &l.content else { continue };
+        let Some(LayerContent::Smart(old)) = before.layer(l.id).map(|o| &o.content) else { continue };
+        let same_cache = match (&sm.cache, &old.cache) {
+            (None, None) => true,
+            (Some(a), Some(b)) => crate::layer_multi_cmds::surfaces_equal(a, b),
+            _ => false,
+        };
+        if same_cache && !crate::layer_multi_cmds::masks_equal(&sm.filter_mask, &old.filter_mask) {
+            ids.push(l.id);
+        }
+    }
+    for id in ids {
+        let _ = refresh(after, id)?;
+    }
+    Ok(())
+}
+
 fn smart(doc: &Document, id: LayerId) -> Result<&SmartObject> {
     match &doc.layer(id).ok_or(EngineError::NoLayer(id))?.content {
         LayerContent::Smart(sm) => Ok(sm),

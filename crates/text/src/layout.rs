@@ -325,6 +325,15 @@ impl TextLayout {
             None => (0.0, 0.0, 0.0),
         }
     }
+
+    /// Whether the caret at `offset` sits on a right-to-left cluster.
+    pub fn caret_is_rtl(&self, offset: usize) -> bool {
+        if let Some(c) = self.clusters.iter().find(|c| c.range.start == offset) {
+            return c.rtl;
+        }
+        let li = self.lines.iter().position(|l| offset >= l.range.start && offset <= l.range.end).unwrap_or(self.lines.len().saturating_sub(1));
+        self.clusters.iter().filter(|c| c.line == li && c.range.end == offset).any(|c| c.rtl)
+    }
 }
 
 /// Byte offset of character `index` (the text length when `index` is past the end).

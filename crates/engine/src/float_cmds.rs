@@ -32,8 +32,9 @@ pub struct CutParts {
     pub layer: LayerId,
     rest: Surface,
     piece: Surface,
-    /// The pieces are the layer's mask (`"target":"mask"`), not its pixels.
+    /// The pieces are the layer's mask (`"target":"mask"` or `"filterMask"`), not its pixels.
     mask: bool,
+    filter_mask: bool,
 }
 
 impl CutParts {
@@ -43,9 +44,15 @@ impl CutParts {
     /// selection or pixels. With `mask` the layer's mask is split instead of its pixels; the hole it
     /// leaves takes the background colour (as on the Background layer).
     pub fn new(doc: &Document, layer: LayerId, copy: bool, background: [f32; 4], mask: bool) -> Result<Self> {
+        Self::new_for_target(doc, layer, copy, background, mask, false)
+    }
+
+    fn new_for_target(doc: &Document, layer: LayerId, copy: bool, background: [f32; 4], mask: bool, filter_mask: bool) -> Result<Self> {
         let sel = doc.selection.as_ref().ok_or_else(|| EngineError::Other("no selection".into()))?;
         let l = doc.layer(layer).ok_or(EngineError::NoLayer(layer))?;
-        let surf = if mask {
+        let surf = if filter_mask {
+            crate::channel_cmds::read_target_surface(doc, Some(layer), &json!({"target": "filterMask"}))?
+        } else if mask {
             &l.mask.as_ref().ok_or_else(|| EngineError::Other("the layer has no mask".into()))?.surface
         } else {
             let LayerContent::Raster(surf) = &l.content else {
@@ -89,7 +96,7 @@ impl CutParts {
             piece.write_region(b, &pp);
             piece.prune();
         }
-        Ok(Self { layer, rest, piece, mask })
+        Ok(Self { layer, rest, piece, mask, filter_mask })
     }
 
     /// `doc` with the piece moved by whole pixels (dx, dy) over the cut-out layer.
@@ -101,12 +108,6 @@ impl CutParts {
 
     /// Put the piece, moved by (dx, dy), over the cut-out layer (or mask) of `doc`.
     fn place(&self, doc: &mut Document, dx: i32, dy: i32) -> Result<()> {
-        let l = doc.layer_mut(self.layer).ok_or(EngineError::NoLayer(self.layer))?;
-        let surf = if self.mask {
-            l.mask.as_mut().map(|m| &mut m.surface).ok_or_else(|| EngineError::Other("the layer has no mask".into()))?
-        } else {
-            l.surface_mut().ok_or_else(|| EngineError::Other("the layer has no pixels to move".into()))?
-        };
         let mut out = self.rest.clone();
         let piece = photocraft_algo::resample::translate_surface(&self.piece, dx, dy);
         if self.mask {
@@ -114,7 +115,19 @@ impl CutParts {
         } else {
             crate::transform_cmds::composite_over(&mut out, &piece);
         }
-        *surf = out;
+        if self.filter_mask {
+            let surf = crate::commands::paint_surface(doc, self.layer, &json!({"target": "filterMask"}))?;
+            *surf = out;
+            let _ = crate::smart_cmds::refresh(doc, self.layer)?;
+        } else {
+            let l = doc.layer_mut(self.layer).ok_or(EngineError::NoLayer(self.layer))?;
+            let surf = if self.mask {
+                l.mask.as_mut().map(|m| &mut m.surface).ok_or_else(|| EngineError::Other("the layer has no mask".into()))?
+            } else {
+                l.surface_mut().ok_or_else(|| EngineError::Other("the layer has no pixels to move".into()))?
+            };
+            *surf = out;
+        }
         Ok(())
     }
 }
@@ -153,7 +166,10 @@ fn can_float(s: &Session) -> std::result::Result<(), String> {
         return Err("there is no selection".into());
     }
     let l = st.active_layer.and_then(|id| st.doc.layer(id)).ok_or("no active layer")?;
-    if !matches!(l.content, LayerContent::Raster(_)) {
+    if !matches!(l.content, LayerContent::Raster(_))
+        && l.mask.is_none()
+        && !matches!(&l.content, LayerContent::Smart(sm) if !sm.smart_filters.is_empty() || sm.filter_mask.is_some())
+    {
         return Err("the active layer has no pixels to move".into());
     }
     if locked_for_float(&st.doc, l) {
@@ -176,7 +192,7 @@ fn float(s: &mut Session, p: &Value) -> Result<Value> {
     let st = s.active_mut().ok_or(EngineError::NoDocument)?;
     if floating(st).is_none() {
         let layer = st.active_layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
-        let parts = CutParts::new(&st.doc, layer, copy, background, crate::commands::is_mask_target(p))?;
+        let parts = CutParts::new_for_target(&st.doc, layer, copy, background, crate::commands::is_mask_target(p), crate::commands::is_filter_mask_target(p))?;
         st.floating = Some(Floating { layer, offset: (0, 0), revision: st.revision, parts: Arc::new(parts) });
     }
     let f = st.floating.as_mut().ok_or(EngineError::NoDocument)?;

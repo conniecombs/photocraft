@@ -330,6 +330,58 @@ fn selection_becomes_the_filter_mask() {
     assert!(!s.is_enabled("layer.smartFilter.deleteFilterMask"));
 }
 
+#[test]
+fn filter_mask_can_be_painted_directly_with_undo() {
+    for depth in DEPTHS {
+        let mut s = session(depth);
+        paint(&mut s);
+        let original = flat(&s);
+        convert(&mut s);
+        // Refused before any smart filters exist on the smart object.
+        assert!(s.execute("edit.fill", json!({"target": "filterMask", "contents": "black"})).is_err());
+
+        s.execute("filter.blur.gaussianBlur", json!({"radius": 3})).unwrap();
+        let fully_filtered = flat(&s);
+        let at = |v: &Vec<[f32; 4]>, x: i32, y: i32| v[(y * W + x) as usize];
+        assert_ne!(at(&fully_filtered, 10, 20), at(&original, 10, 20));
+        assert_ne!(at(&fully_filtered, 30, 20), at(&original, 30, 20));
+
+        // Direct brush stroke on the filter mask with black ([0,0,0]) hides the filter along the stroke.
+        s.execute(
+            "paint.stroke",
+            json!({
+                "target": "filterMask",
+                "size": 16.0,
+                "hardness": 1.0,
+                "color": [0.0, 0.0, 0.0, 1.0],
+                "points": [[6.0, 20.0], [14.0, 20.0]]
+            }),
+        )
+        .unwrap();
+        assert!(active_smart(&s).filter_mask.is_some());
+        let after_brush = flat(&s);
+        assert_eq!(at(&after_brush, 10, 20), at(&original, 10, 20), "depth {depth}: black brush on filterMask reveals unfiltered source");
+        assert_eq!(at(&after_brush, 30, 20), at(&fully_filtered, 30, 20), "depth {depth}: untouched filterMask area stays filtered");
+
+        // Undo restores the unmasked smart filter output; redo restores the painted filter mask.
+        s.undo();
+        assert!(active_smart(&s).filter_mask.is_none());
+        assert_eq!(flat(&s), fully_filtered, "depth {depth}: undo restores smart object cache");
+        s.redo();
+        assert_eq!(flat(&s), after_brush, "depth {depth}: redo restores painted filter mask and cache");
+
+        // Targeting `filterMask` via `channel.target` routes subsequent tool/adjustment commands to the filter mask.
+        s.execute("channel.target", json!({"channel": "filterMask"})).unwrap();
+        s.execute("image.adjustments.invert", json!({})).unwrap();
+        let after_invert = flat(&s);
+        assert_eq!(at(&after_invert, 10, 20), at(&fully_filtered, 10, 20), "depth {depth}: inverted mask filters the brushed spot");
+        assert_eq!(at(&after_invert, 30, 20), at(&original, 30, 20), "depth {depth}: inverted mask hides the filter outside");
+        s.undo();
+        assert_eq!(flat(&s), after_brush);
+    }
+}
+
+
 /// Scales `id` to 10 % around the origin and back, returning the composite.
 fn shrink_and_grow(s: &mut Session, id: u64) -> Vec<[f32; 4]> {
     s.execute("edit.transform", json!({"layer": id, "matrix": [0.1, 0, 0, 0.1, 0, 0]})).unwrap();

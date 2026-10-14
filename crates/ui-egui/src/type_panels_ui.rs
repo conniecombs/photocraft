@@ -438,6 +438,7 @@ fn options_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool, s
         if paragraph {
             let rows: &[(&str, &str, &str)] = &[
                 (tl!("Align"), "align", "align"),
+                ("Direction", "direction", "direction"),
                 (tl!("Indent First"), "first_line_indent_pt", "pt"),
                 (tl!("Indent Left"), "start_indent_pt", "pt"),
                 (tl!("Indent Right"), "end_indent_pt", "pt"),
@@ -469,6 +470,16 @@ fn options_editor(app: &mut PhotocraftApp, ui: &mut egui::Ui, paragraph: bool, s
                         .collect();
                         if crate::widgets::dropdown(ui, &format!("style-align-{id}"), &mut a, &opts, 110.0) {
                             set = Some(json!({ "align": a }));
+                        }
+                    }
+                    "direction" => {
+                        let mut d = v.as_str().unwrap_or("Auto").to_string();
+                        let opts: Vec<(String, &str)> = [("Auto", "Auto"), ("Ltr", "Left-to-Right"), ("Rtl", "Right-to-Left")]
+                            .into_iter()
+                            .map(|(v, l)| (v.to_string(), l))
+                            .collect();
+                        if crate::widgets::dropdown(ui, &format!("style-direction-{id}"), &mut d, &opts, 110.0) {
+                            set = Some(json!({ "direction": d }));
                         }
                     }
                     "pt" => {

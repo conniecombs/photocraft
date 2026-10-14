@@ -188,6 +188,20 @@ pub fn lone_target<'a>(doc: &'a Document, layer: Option<LayerId>, p: &Value) -> 
             let m = l.mask.as_ref().ok_or_else(|| EngineError::Other("layer has no mask".into()))?;
             Ok((!m.linked).then_some(&m.surface))
         }
+        Target::FilterMask => {
+            let id = layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
+            let l = doc.layer(id).ok_or(EngineError::NoLayer(id))?;
+            let LayerContent::Smart(sm) = &l.content else {
+                return Err(EngineError::Other("layer is not a smart object".into()));
+            };
+            let Some(m) = sm.filter_mask.as_ref() else {
+                if sm.smart_filters.is_empty() {
+                    return Err(EngineError::Other("the smart object has no filter mask".into()));
+                }
+                return Ok(None);
+            };
+            Ok((!m.linked).then_some(&m.surface))
+        }
         Target::Alpha(i) => doc
             .channels
             .get(i)

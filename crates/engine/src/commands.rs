@@ -52,28 +52,45 @@ fn has_pixel_or_channel(s: &Session) -> std::result::Result<(), String> {
     }
     has_pixel_layer(s)
 }
-/// A layer that can be painted: pixels, or any layer with a mask (paint with `"target":"mask"`).
+/// A layer that can be painted: pixels, any layer with a mask (`"target":"mask"`), or a smart
+/// object with a filter mask (`"target":"filterMask"`).
 pub(crate) fn has_paintable(s: &Session) -> std::result::Result<(), String> {
     if crate::channel_cmds::edits_channel(s) {
         return Ok(());
     }
     let l = crate::active_layer_of(s)?;
-    if matches!(l.content, LayerContent::Raster(_)) || l.mask.is_some() {
+    if matches!(l.content, LayerContent::Raster(_))
+        || l.mask.is_some()
+        || matches!(&l.content, LayerContent::Smart(sm) if !sm.smart_filters.is_empty() || sm.filter_mask.is_some())
+    {
         Ok(())
     } else {
         Err(format!("active layer is {} {} layer without a mask", l.content.article(), l.content.kind_name()))
     }
 }
 
-/// Surface a paint command writes to: the layer's pixels, or its mask with `"target":"mask"`.
+/// Surface a paint command writes to: the layer's pixels, its mask with `"target":"mask"`, or a
+/// smart object's filter mask with `"target":"filterMask"`.
 pub(crate) fn paint_surface<'a>(doc: &'a mut Document, id: LayerId, p: &Value) -> Result<&'a mut photocraft_raster::Surface> {
     if is_mask_target(p) {
         check_all_unlocked(doc, id)?;
     } else {
         check_pixels_unlocked(doc, id)?;
     }
+    let depth = doc.depth;
     let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-    if is_mask_target(p) {
+    if is_filter_mask_target(p) {
+        let LayerContent::Smart(sm) = &mut l.content else {
+            return Err(EngineError::Other("layer is not a smart object".into()));
+        };
+        if sm.filter_mask.is_none() {
+            if sm.smart_filters.is_empty() {
+                return Err(EngineError::Other("the smart object has no filter mask".into()));
+            }
+            sm.filter_mask = Some(mask_at_depth(LayerMask::reveal_all(), depth)?);
+        }
+        sm.filter_mask.as_mut().map(|m| &mut m.surface).ok_or_else(|| EngineError::Other("the smart object has no filter mask".into()))
+    } else if is_mask_target(p) {
         l.mask.as_mut().map(|m| &mut m.surface).ok_or_else(|| EngineError::Other("layer has no mask".into()))
     } else {
         l.surface_mut().ok_or_else(|| EngineError::Other("not a pixel layer".into()))
@@ -100,7 +117,11 @@ pub(crate) fn check_pixels_unlocked(doc: &Document, id: LayerId) -> Result<()> {
 }
 
 pub(crate) fn is_mask_target(p: &Value) -> bool {
-    p.get("target").and_then(Value::as_str) == Some("mask")
+    matches!(p.get("target").and_then(Value::as_str), Some("mask" | "filterMask"))
+}
+
+pub(crate) fn is_filter_mask_target(p: &Value) -> bool {
+    p.get("target").and_then(Value::as_str) == Some("filterMask")
 }
 
 fn can_undo(s: &Session) -> std::result::Result<(), String> {
@@ -322,7 +343,7 @@ pub(crate) fn selection_mask(doc: &Document) -> Result<Option<LayerMask>> {
 /// New pixel masks use the document's depth, as PSD saves/imports do. Otherwise a later soft
 /// brush stroke quantizes differently depending on whether the document reopened as PSD or
 /// native. Converting a selection keeps its coverage and does not alter the selection itself.
-fn mask_at_depth(mut mask: LayerMask, depth: SampleType) -> Result<LayerMask> {
+pub(crate) fn mask_at_depth(mut mask: LayerMask, depth: SampleType) -> Result<LayerMask> {
     let format = mask.surface.format().with_sample(depth);
     if mask.surface.format() != format {
         mask.surface = mask.surface.try_convert(format)?;
@@ -370,13 +391,12 @@ fn new_adjustment(s: &mut Session, adj: Adjustment, p: &Value, cmd: &str) -> Res
 
 fn destructive_adjust(s: &mut Session, label: &str, adj: Adjustment, p: &Value) -> Result<Value> {
     if is_mask_target(p) {
-        // The targeted layer mask (#780): ⌘I inverts it, as in Photoshop.
+        // The targeted layer or filter mask (#780, #215): ⌘I inverts it, as in Photoshop.
         let id = layer_param(s, &Value::Null)?;
         return s.edit(label, |doc, _| {
             let sel = doc.selection.clone();
-            let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
-            let mask = l.mask.as_mut().ok_or_else(|| EngineError::Other("layer has no mask".into()))?;
-            pixels::adjust_mask(&mut mask.surface, &adj, sel.as_ref());
+            let surf = paint_surface(doc, id, p)?;
+            pixels::adjust_mask(surf, &adj, sel.as_ref());
             Ok(Value::Null)
         });
     }

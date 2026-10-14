@@ -601,6 +601,11 @@ impl LiveStroke {
                 dmg = dmg.union(&StrokeRenderer::composite_union_live(&mut renderers, &mut live, full, &self.pre, surf, self.sel.as_ref(), self.lock));
                 self.tail = old.union(&live.bounds());
                 self.union_live = Some((live, passes));
+                if crate::commands::is_filter_mask_target(&self.params)
+                    && let Some(id) = self.layer
+                {
+                    let _ = crate::smart_cmds::refresh(std::sync::Arc::make_mut(&mut self.doc), id);
+                }
                 return Ok(dmg);
             }
             let mut dmg = Rect::EMPTY;
@@ -615,6 +620,11 @@ impl LiveStroke {
             if let Some(mut tail) = self.renderer.tail_preview() {
                 self.tail = tail.composite(&self.pre, surf, self.sel.as_ref(), self.lock, false);
                 dmg = dmg.union(&self.tail);
+            }
+            if crate::commands::is_filter_mask_target(&self.params)
+                && let Some(id) = self.layer
+            {
+                let _ = crate::smart_cmds::refresh(std::sync::Arc::make_mut(&mut self.doc), id);
             }
             Ok(dmg)
         })

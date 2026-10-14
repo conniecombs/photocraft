@@ -3243,6 +3243,12 @@ mod tests {
         h.get_by_label("Cancel transform").click();
         h.run_steps(2);
         assert!(h.state().ui.transform.is_none());
+
+        h.state_mut().ui.transform = Some(session());
+        h.run_steps(2);
+        h.get_by_label("Commit transform").click();
+        h.run_steps(2);
+        assert!(h.state().ui.transform.is_none());
     }
 
     #[test]

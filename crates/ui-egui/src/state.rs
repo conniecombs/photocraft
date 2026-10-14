@@ -533,12 +533,14 @@ pub struct ToolOptions {
     pub fill_opacity: f32,
     /// Paint Bucket fill source: false = Foreground colour, true = Pattern (Patterns panel selection).
     pub bucket_fill_pattern: bool,
-    /// Type tool: family, style name, size (pt), anti-aliasing and paragraph alignment.
+    /// Type tool: family, style name, size (pt), anti-aliasing, paragraph alignment and direction.
     pub type_font: String,
     pub type_style: String,
     pub type_size: f32,
     pub type_aa: String,
     pub type_align: String,
+    #[serde(default = "default_type_direction")]
+    pub type_direction: String,
     /// Clone Stamp / Healing Brush.
     pub clone_aligned: bool,
     /// Pattern Stamp: lock the tile origin in document space across strokes.
@@ -761,6 +763,10 @@ fn default_eyedropper_sample() -> String {
     "all".into()
 }
 
+fn default_type_direction() -> String {
+    "auto".into()
+}
+
 impl Default for ToolOptions {
     fn default() -> Self {
         Self {
@@ -784,6 +790,7 @@ impl Default for ToolOptions {
             type_size: 48.0,
             type_aa: "sharp".into(),
             type_align: "left".into(),
+            type_direction: "auto".into(),
             clone_aligned: true,
             pattern_stamp_aligned: true,
             pattern_stamp_impressionist: false,
@@ -1111,6 +1118,10 @@ pub struct UiState {
     /// tools edit it (#196). Never set together with `mask_target`.
     #[serde(default)]
     pub vector_mask_target: bool,
+    /// Painting targets the active Smart Object's Smart Filter mask (`FILE-215-3`). Never set
+    /// together with `mask_target` or `vector_mask_target`.
+    #[serde(default)]
+    pub filter_mask_target: bool,
     /// The adjustment or fill layer (id) whose own settings Properties shows although its mask
     /// is targeted: set when that layer is created, as in Photoshop (#3369). Targeting the mask
     /// thumbnail, the layer's pixels or another layer clears it.
@@ -1313,6 +1324,7 @@ impl Default for UiState {
             layer_picker: None,
             mask_target: false,
             vector_mask_target: false,
+            filter_mask_target: false,
             properties_layer: None,
             brush_picker: None,
             brush_picker_list: crate::brush_picker::list_state(),

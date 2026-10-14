@@ -13,7 +13,7 @@ use photocraft_algo::inpaint::{self, CompleteParams};
 use photocraft_algo::poisson;
 use photocraft_algo::retouch::{ToneRange, dodge_burn, local_blur, local_sharpen, sponge};
 use photocraft_color::{BlendMode, PixelFormat, SampleType};
-use photocraft_doc::{Document, LayerContent, LayerId};
+use photocraft_doc::{Document, LayerId};
 use photocraft_geom::Rect;
 use photocraft_paint::retouch::{Footprint, Region, Smudge, alpha_index, apply_coverage, apply_dab_stroke, stroke_coverage};
 use photocraft_paint::{BrushSettings, Stroke, StrokePoint};
@@ -35,18 +35,10 @@ fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
     EngineError::BadParams { cmd: cmd.into(), msg: msg.into() }
 }
 
-/// A pixel layer, a layer with a mask, or a targeted alpha channel / Quick Mask (as the Brush).
+/// A pixel layer, a layer with a mask, a smart object with a filter mask, or a targeted alpha
+/// channel / Quick Mask (as the Brush).
 fn has_pixel_layer(s: &Session) -> std::result::Result<(), String> {
-    if crate::channel_cmds::edits_channel(s) {
-        return Ok(());
-    }
-    let d = s.active().ok_or("no document open")?;
-    let l = d.active_layer.and_then(|id| d.doc.layer(id)).ok_or("no active layer")?;
-    if matches!(l.content, LayerContent::Raster(_)) || l.mask.is_some() {
-        Ok(())
-    } else {
-        Err(format!("active layer is {} {} layer, not a pixel layer", l.content.article(), l.content.kind_name()))
-    }
+    crate::commands::has_paintable(s)
 }
 
 /// The stroke paints layer pixels (not a mask or channel), so other layers can be sampled.
@@ -510,6 +502,12 @@ impl LiveRetouch {
             self.tail = self.composite(r, &cov)?;
             dmg = dmg.union(&self.tail);
         }
+        if !dmg.is_empty()
+            && crate::commands::is_filter_mask_target(&self.params)
+            && let Some(id) = self.id
+        {
+            let _ = crate::smart_cmds::refresh(std::sync::Arc::make_mut(&mut self.doc), id);
+        }
         Ok(dmg)
     }
 
@@ -522,7 +520,7 @@ impl LiveRetouch {
             return Err(bad(&self.cmd, "periodic painting requires a clone source"));
         };
         let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.id, &self.params)?;
-        periodic::Composite {
+        let dmg = periodic::Composite {
             target: surf,
             before: &self.pre_surf,
             tile: self.pre.bounds(),
@@ -531,7 +529,14 @@ impl LiveRetouch {
             lock: self.lock,
             mode: self.mode,
         }
-        .draw(dirty, &self.brush, &self.points, |r| clone_sample(&self.pre, self.id, &self.pre_surf, *which, r, map, true, cmd))
+        .draw(dirty, &self.brush, &self.points, |r| clone_sample(&self.pre, self.id, &self.pre_surf, *which, r, map, true, cmd))?;
+        if !dmg.is_empty()
+            && crate::commands::is_filter_mask_target(&self.params)
+            && let Some(id) = self.id
+        {
+            let _ = crate::smart_cmds::refresh(std::sync::Arc::make_mut(&mut self.doc), id);
+        }
+        Ok(dmg)
     }
 
     /// Redraw `r` from the pre-stroke pixels with the clone source through coverage `cov`.
@@ -1163,7 +1168,14 @@ impl LiveDab {
             photocraft_paint::retouch::mix_back(surf, &Region::read(&self.pre_surf, r), &work, r, self.opacity, self.sel.as_ref(), self.lock);
             self.tail = r;
         }
-        Ok(shown.union(&tail_rect))
+        let out_dmg = shown.union(&tail_rect);
+        if !out_dmg.is_empty()
+            && crate::commands::is_filter_mask_target(&self.params)
+            && let Some(id) = self.id
+        {
+            let _ = crate::smart_cmds::refresh(std::sync::Arc::make_mut(&mut self.doc), id);
+        }
+        Ok(out_dmg)
     }
 }
 

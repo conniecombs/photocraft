@@ -197,9 +197,9 @@ note = "On-canvas corner radius widgets on every selected live rectangle with Pa
 [[item]]
 id = "TOOL-214-13"
 target = "Mask Properties: Density and Feather controls"
-status = "partial"
+status = "done"
 issue = 214
-note = "Vector-mask density/feather in the engine (vector_cmds.rs:948); no UI controls"
+note = "mask_props_ui.rs: Properties panel shows Density (0–100 %) and Feather (0–250 px) sliders plus Invert / Select and Mask / Color Range for a targeted pixel layer mask (layer.layerMask.setProps) and Density and Feather sliders for a targeted vector mask (layer.vectorMask.setProps); pixel_and_vector_mask_properties_show_density_and_feather_controls"
 
 [[item]]
 id = "TOOL-214-14"

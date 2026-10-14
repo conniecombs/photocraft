@@ -70,8 +70,8 @@ Triangle and Curvature Pen (minus legacy Rounded Rectangle and Targeted Adjustme
 | With a selection, the box is the selection's rectangle and the marching ants follow the box live | done | `transform_frame`, `transform_tool.rs` (`draw_selection`): move, scale, rotate, skew, distort, perspective and warp, before the transform is applied; also the Move tool's Show Transform Controls (#5297) |
 | Options bar H/V skew fields | done | `transform_tool.rs` (`Parts`, `skew_about_pivot`): W/H, angle and skew read as Photoshop decomposes the box; `skew_fields_lean_the_box_about_the_reference_point` |
 | Interpolation in the options bar | partial | Bicubic/Bilinear/Nearest; no Bicubic Smoother/Sharper/Automatic, Preserve Details |
-| Commit/cancel buttons in the options bar | missing | #2442 |
-| Right-click menu during transform (Scale, Rotate, Skew, Distort, Perspective, Warp, flips, rotates) | missing | TOOL-214-5 |
+| Commit/cancel buttons in the options bar | done | `transform_tool.rs` (`options_bar`, `transform_bar_pins_warp_cancel_and_commit`, #2442) |
+| Right-click menu during transform (Scale, Rotate, Skew, Distort, Perspective, Warp, flips, rotates) | done | TOOL-214-5 (#2832) |
 | Arrow keys nudge the box 1 px, ⇧ 10 px | done | `move_mods.rs` |
 | Preview keeps layer order, blend mode and mask | partial | mask yes (BUG-205-2); order/blend not (#2439) |
 | Preview clipped to the canvas, follows edits while open | done | #2201, #2099 |
@@ -220,11 +220,12 @@ Paragraph; the rest open as in-app floating windows.
 | Smart filter rows: click selects, drag onto another smart object moves, ⌥-drag copies, drag onto Delete removes | done | `smart_ui.rs`, `layer.smartFilter.transfer` (#4271) |
 | Layers panel: Clip Thumbnails to Layer Bounds (panel menu, `interface.clipThumbnailsToLayerBounds`) | done (2026-10-12) | `layer_thumb_bounds_tests.rs`; #4281. Thumbnail size and the Panel Options dialog to come |
 | Smart filter rows: drag up or down the stack to reorder (a line marks the drop; the bottom filter is applied first) | done | `smart_ui.rs` `reorder_drop`, `layer.smartFilter.move` |
+| Smart filter mask: click the Smart Filters mask thumbnail or the Filter Mask channel row to paint directly on the filter mask with undo | done | `smart_ui.rs`, `channels_panel.rs`, `FILE-215-3` |
 
 ## Revision history
 
 | Date | Change | Summary |
-|---|---|---|
+|---|---|---|---|
 | 2026-10-13 | minor | Menu bar from the keyboard: Alt / F10 focus, Alt+letter, underlined mnemonics (#4988) |
 | 2026-10-13 | minor | Layers panel filter row: Kind is a real dropdown with Kind, Name and Mode filters, drivable by `ui.set {layerFilter}` (#5048); row added as partial |
 | 2026-10-13 | minor | Stale "missing tool" rows corrected against main: Color Replacement (`paint.colorReplacement`), Red Eye (`paint.redEye`) and Add/Delete Anchor Point (the P flyout cycle) are live toolbar tools, so only Art History Brush is missing; no percentage or estimate changed |
@@ -253,3 +254,4 @@ Paragraph; the rest open as in-app floating windows.
 | 2026-10-11 | minor | Pen ⇧ 45° done: ⇧-click puts the next anchor on the nearest 45° ray, ⇧-drag turns its handles in 45° steps (TOOL-214-10 done, #3751) |
 | 2026-10-14 | minor | Last selected tool restored across launches; temporary overrides excluded, explicit Eraser choices retained, and final selection flushed on normal exit |
 | 2026-10-13 | minor | Free Transform with a selection: the box is the selection's rectangle, and the marching ants follow it while it is transformed (#5297) |
+| 2026-10-14 | minor | Direct painting on smart filter masks (`FILE-215-3`), Paragraph direction controls and visual RTL caret (`TYPE-218-2`), Mask Properties Density/Feather (`TOOL-214-13`), and Free Transform options-bar Commit/Cancel (#2442) |

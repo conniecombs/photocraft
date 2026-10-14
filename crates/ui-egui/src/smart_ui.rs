@@ -130,6 +130,9 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
             let sw = Rect::from_center_size(pos2(x - 12.0, rect.center().y), vec2(14.0, 10.0));
             ui.painter().rect_filled(sw, 1.0, if sm.filter_mask.as_ref().is_some_and(|m| m.enabled) { Color32::from_gray(200) } else { Color32::WHITE });
             ui.painter().rect_stroke(sw, 1.0, Stroke::new(1.0, t.field_border), egui::StrokeKind::Inside);
+            if active && app.filter_mask_targeted() {
+                crate::mask_thumbs_ui::paint_brackets(ui.painter(), sw, t.text);
+            }
         }
         ui.painter().text(pos2(x, rect.center().y), Align2::LEFT_CENTER, &name, egui::FontId::proportional(11.5), if on { t.text_dim } else { t.text_faint });
         resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &name));
@@ -138,6 +141,7 @@ pub fn filter_rows(app: &mut PhotocraftApp, ui: &mut egui::Ui, l: &Layer, depth:
             if !active {
                 actions.push(("layer.select".into(), json!({"layer": l.id.0})));
             }
+            actions.push(("ui.filterMaskTarget".into(), json!(index.is_none())));
         }
         if let Some(i) = index
             && resp.double_clicked()

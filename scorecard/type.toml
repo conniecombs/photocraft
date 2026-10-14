@@ -14,9 +14,9 @@ note = "TextShape::Path (doc text.rs) with glyphs placed rigidly along the curve
 [[item]]
 id = "TYPE-218-2"
 target = "Paragraph direction (Auto/LTR/RTL) in the panel and options bar; visual RTL caret"
-status = "missing"
+status = "done"
 issue = 218
-note = "Engine has TextDirection (text.rs:155); no UI"
+note = "Paragraph direction toggles (Auto, LTR, RTL) in the Paragraph panel, Properties Paragraph section, Type options bar and Paragraph Style Options (type_tool.rs, type_panels_ui.rs, state.rs type_direction); visual RTL caret flag and visual Left/Right arrow navigation in RTL text (layout.rs caret_is_rtl, type_tool.rs caret_is_rtl, paragraph_direction_controls_and_visual_rtl_caret_work_in_panel_and_options_bar)"
 
 [[item]]
 id = "TYPE-218-3"

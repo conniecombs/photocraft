@@ -300,22 +300,23 @@ fn copy(s: &mut Session, merged: bool) -> Result<Value> {
     Ok(json!({"bounds": [b.x0, b.y0, b.width(), b.height()]}))
 }
 
-/// Copy with the layer mask targeted (`"target":"mask"`, #2928): the mask's values as a
-/// grayscale clip, inside the selection or the whole canvas — an untouched mask copies at its
-/// default value, so a plain Reveal All / Hide All mask transfers too. Paste then writes into
-/// another layer's mask (targeted, #1035), in this or another document.
-fn copy_mask(s: &mut Session) -> Result<Value> {
+/// Copy with the layer or filter mask targeted (`"target":"mask"|"filterMask"`, #2928, #215): the
+/// mask's values as a grayscale clip, inside the selection or the whole canvas — an untouched mask
+/// copies at its default value, so a plain Reveal All / Hide All mask transfers too. Paste then
+/// writes into another layer's mask (targeted, #1035), in this or another document.
+fn copy_mask(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let canvas = d.doc.bounds();
     let id = d.active_layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
-    let mask = d.doc.layer(id).ok_or(EngineError::NoLayer(id))?.mask.as_ref().ok_or_else(|| EngineError::Other("the active layer has no layer mask".into()))?;
+    let filter_mask = crate::commands::is_filter_mask_target(p);
+    let mask_surf = crate::channel_cmds::read_target_surface(&d.doc, Some(id), p)?;
     let sel = d.doc.selection.as_ref();
     let area = sel.map_or(canvas, |m| m.content_bounds().intersect(&canvas));
     if area.is_empty() {
         return Err(EngineError::Other("Could not copy: the selected area is empty".into()));
     }
-    let n = mask.surface.format().channels().max(1);
-    let values = crate::allocation::read_region(&mask.surface, area, "copying the mask")?;
+    let n = mask_surf.format().channels().max(1);
+    let values = crate::allocation::read_region(mask_surf, area, "copying the mask")?;
     let len = values
         .len()
         .checked_div(n)
@@ -327,7 +328,7 @@ fn copy_mask(s: &mut Session) -> Result<Value> {
         px[i * 2] = p.first().copied().unwrap_or(0.0);
         px[i * 2 + 1] = cover.as_ref().map_or(1.0, |(m, mk)| m.get(i * mk).copied().unwrap_or(0.0));
     }
-    let fmt = PixelFormat::new(ColorMode::Grayscale, mask.surface.format().sample, true);
+    let fmt = PixelFormat::new(ColorMode::Grayscale, mask_surf.format().sample, true);
     let mut surface = Surface::new(fmt);
     surface
         .try_write_region(area, &px)
@@ -340,7 +341,7 @@ fn copy_mask(s: &mut Session) -> Result<Value> {
     let b = bounds;
     let resolution = Some(d.doc.resolution_dpi);
     s.clipboard = Some(Clip { surface, bounds: b, layers: None, resolution });
-    Ok(json!({"bounds": [b.x0, b.y0, b.width(), b.height()], "target": "mask"}))
+    Ok(json!({"bounds": [b.x0, b.y0, b.width(), b.height()], "target": if filter_mask { "filterMask" } else { "mask" }}))
 }
 
 fn clear_selected(doc: &mut Document, id: LayerId, background: [f32; 4]) -> Result<()> {
@@ -977,7 +978,7 @@ pub fn specs() -> Vec<CommandSpec> {
             can_copy,
             |s, p| {
                 if crate::commands::is_mask_target(p) {
-                    return copy_mask(s);
+                    return copy_mask(s, p);
                 }
                 match crate::channel_clip::copy(s)? {
                     Some(r) => Ok(r),

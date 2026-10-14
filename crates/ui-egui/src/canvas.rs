@@ -5948,7 +5948,11 @@ pub fn paint_target(app: &PhotocraftApp) -> serde_json::Value {
         ChannelTarget::Alpha(i) if i < st.doc.channels.len() => return json!({ "channel": i }),
         ChannelTarget::Composite if st.doc.quick_mask.is_some() => return json!("quickMask"),
         ChannelTarget::LayerMask => return json!("mask"),
+        ChannelTarget::FilterMask => return json!("filterMask"),
         _ => {}
+    }
+    if app.filter_mask_targeted() {
+        return json!("filterMask");
     }
     let has_mask = st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| l.mask.is_some());
     // Viewing the mask (⌥-click its thumbnail, #196) paints the mask.

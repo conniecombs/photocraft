@@ -119,3 +119,63 @@ fn refine_row(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         ui.add_space(theme::ROW_GAP);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui::vec2;
+    use egui_kittest::Harness;
+    use egui_kittest::kittest::Queryable;
+
+    #[test]
+    fn pixel_and_vector_mask_properties_show_density_and_feather_controls() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 120, "height": 80})).unwrap();
+        app.run("layer.new.layer", json!({})).unwrap();
+        app.run("layer.layerMask.revealAll", json!({})).unwrap();
+        app.run("layer.vectorMask.revealAll", json!({})).unwrap();
+
+        let mut h = Harness::builder().with_size(vec2(280.0, 320.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                    return;
+                }
+                let Some(st) = app.session.active() else { return };
+                let Some(layer) = st.active_layer.and_then(|id| st.doc.layer(id)).cloned() else { return };
+                if vector_targeted(app, &layer) {
+                    vector_properties(app, ui, &layer);
+                } else if targeted(app, &layer) {
+                    properties(app, ui, &layer);
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
+
+        // Pixel mask targeted: shows Layer Mask section with Density, Feather, and Invert.
+        h.state_mut().ui.mask_target = true;
+        h.state_mut().ui.vector_mask_target = false;
+        h.state_mut().sync_views();
+        h.run_steps(3);
+        let sections = crate::props_layout::sections_drawn(&h.ctx);
+        assert!(sections.iter().any(|(t, _)| t == "Layer Mask"));
+        assert!(h.query_all_by_label("Density").next().is_some());
+        assert!(h.query_all_by_label("Feather").next().is_some());
+        h.get_by_label("Invert").click();
+        h.run_steps(2);
+        let st = h.state().session.active().unwrap();
+        let l = st.doc.layer(st.active_layer.unwrap()).unwrap();
+        assert_eq!(l.mask.as_ref().unwrap().surface.default_pixel(), vec![0.0]);
+
+        // Vector mask targeted: shows Vector Mask section with Density and Feather.
+        h.state_mut().ui.mask_target = false;
+        h.state_mut().ui.vector_mask_target = true;
+        h.state_mut().sync_views();
+        h.run_steps(3);
+        let sections = crate::props_layout::sections_drawn(&h.ctx);
+        assert!(sections.iter().any(|(t, _)| t == "Vector Mask"));
+        assert!(h.query_all_by_label("Density").next().is_some());
+        assert!(h.query_all_by_label("Feather").next().is_some());
+    }
+}
+

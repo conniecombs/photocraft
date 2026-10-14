@@ -23,12 +23,12 @@ const PARAMS: &str = r##"{"layer":id?,"target":"pixels"|"mask"|"quickMask"|{"cha
 /// The shape or type layer the colour fill keys recolor instead of filling pixels.
 fn target_live_layer(s: &Session, p: &Value) -> Option<LayerId> {
     if let Some(t) = p.get("target")
-        && (t.as_str() == Some("mask") || t.as_str() == Some("quickMask") || t.get("channel").is_some())
+        && (matches!(t.as_str(), Some("mask" | "filterMask" | "quickMask")) || t.get("channel").is_some())
     {
         return None;
     }
     let st = s.active()?;
-    if st.channel_view.target == crate::channel_cmds::ChannelTarget::LayerMask {
+    if matches!(st.channel_view.target, crate::channel_cmds::ChannelTarget::LayerMask | crate::channel_cmds::ChannelTarget::FilterMask) {
         return None;
     }
     let id = if let Some(v) = p.get("layer") { LayerId(v.as_u64()?) } else { st.active_layer? };

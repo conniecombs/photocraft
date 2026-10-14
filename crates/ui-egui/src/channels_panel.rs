@@ -314,6 +314,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             ChannelTarget::Composite => json!("composite"),
             ChannelTarget::LayerMask => json!("mask"),
             ChannelTarget::VectorMask => json!("vectorMask"),
+            ChannelTarget::FilterMask => json!("filterMask"),
         };
         let trash = icons::button(ui, "trash", 26.0, false, tl!("Delete current channel"));
         if trash.clicked() {

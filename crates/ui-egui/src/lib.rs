@@ -1028,6 +1028,7 @@ impl PhotocraftApp {
                 use photocraft_engine::channel_cmds::ChannelTarget;
                 self.ui.mask_target = t == ChannelTarget::LayerMask;
                 self.ui.vector_mask_target = t == ChannelTarget::VectorMask;
+                self.ui.filter_mask_target = t == ChannelTarget::FilterMask;
             }
             self.sync_mask_targets();
         }
@@ -2039,15 +2040,22 @@ impl PhotocraftApp {
     /// ⌘I then inverts the mask, as in Photoshop (#780). A targeted alpha channel or Quick Mask
     /// mode wins, as the engine routes those itself.
     pub fn with_mask_target(&self, id: &str, params: Value) -> Value {
-        if !photocraft_engine::channel_cmds::follows_target(id) || params.get("target").is_some() || !self.layer_mask_targeted() {
+        if !photocraft_engine::channel_cmds::follows_target(id) || params.get("target").is_some() {
             return params;
         }
+        let target = if self.filter_mask_targeted() {
+            "filterMask"
+        } else if self.layer_mask_targeted() {
+            "mask"
+        } else {
+            return params;
+        };
         match params {
             Value::Object(mut m) => {
-                m.insert("target".into(), Value::from("mask"));
+                m.insert("target".into(), Value::from(target));
                 Value::Object(m)
             }
-            _ => serde_json::json!({ "target": "mask" }),
+            _ => serde_json::json!({ "target": target }),
         }
     }
 
@@ -2070,6 +2078,17 @@ impl PhotocraftApp {
         colors_off && !alpha_on
     }
 
+    /// The active Smart Object's filter mask is what pixel and paint commands edit (`FILE-215-3`).
+    pub fn filter_mask_targeted(&self) -> bool {
+        let Some(st) = self.session.active() else { return false };
+        let filter_mask = st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::FilterMask;
+        let composite = (st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::Composite || filter_mask) && st.doc.quick_mask.is_none();
+        let has_filter_mask = st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| {
+            matches!(&l.content, photocraft_doc::LayerContent::Smart(sm) if sm.filter_mask.as_ref().is_some_and(|m| m.enabled) || (sm.filter_mask.is_none() && !sm.smart_filters.is_empty()))
+        });
+        composite && has_filter_mask && (self.ui.filter_mask_target || filter_mask)
+    }
+
     /// Viewing a layer mask (#196) targets it; a vector-mask target needs a vector mask on the
     /// active layer (a shape layer's path is its content, not a mask). Targeting a mask or the
     /// pixels brings back that target's foreground/background pair, as in Photoshop (#2166).
@@ -2078,9 +2097,15 @@ impl PhotocraftApp {
             if photocraft_engine::mask_view_cmds::current(st).is_some() || st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::LayerMask {
                 self.ui.mask_target = true;
                 self.ui.vector_mask_target = false;
+                self.ui.filter_mask_target = false;
             } else if st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::VectorMask {
                 self.ui.vector_mask_target = true;
                 self.ui.mask_target = false;
+                self.ui.filter_mask_target = false;
+            } else if st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::FilterMask {
+                self.ui.filter_mask_target = true;
+                self.ui.mask_target = false;
+                self.ui.vector_mask_target = false;
             }
             if self.ui.vector_mask_target && !mask_thumbs_ui::has_vector_mask(st) {
                 self.ui.vector_mask_target = false;
@@ -2088,14 +2113,23 @@ impl PhotocraftApp {
             if self.ui.mask_target && st.active_layer.and_then(|id| st.doc.layer(id)).is_none_or(|l| l.mask.is_none()) {
                 self.ui.mask_target = false;
             }
+            let has_filter_mask = st.active_layer.and_then(|id| st.doc.layer(id)).is_some_and(|l| {
+                matches!(&l.content, photocraft_doc::LayerContent::Smart(sm) if sm.filter_mask.as_ref().is_some_and(|m| m.enabled) || (sm.filter_mask.is_none() && !sm.smart_filters.is_empty()))
+            });
+            if self.ui.filter_mask_target && !has_filter_mask {
+                self.ui.filter_mask_target = false;
+            }
             if !self.ui.mask_target && st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::LayerMask {
+                st.channel_view.target = photocraft_engine::channel_cmds::ChannelTarget::Composite;
+            }
+            if !self.ui.filter_mask_target && st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::FilterMask {
                 st.channel_view.target = photocraft_engine::channel_cmds::ChannelTarget::Composite;
             }
             if !self.ui.mask_target || self.ui.properties_layer != st.active_layer.map(|l| l.0) {
                 self.ui.properties_layer = None;
             }
         }
-        let mask = self.layer_mask_targeted();
+        let mask = self.layer_mask_targeted() || self.filter_mask_targeted();
         self.session.tools.target_mask(mask);
     }
 

@@ -229,3 +229,30 @@ fn clicking_the_smart_object_row_deselects_its_filter() {
     click_at(&mut h, trash);
     assert_eq!(filters(&h, a).len(), 2, "the filters stay");
 }
+
+#[test]
+fn clicking_smart_filters_row_targets_filter_mask_for_painting() {
+    let (mut h, a, _, _) = panel();
+    assert!(!h.state().filter_mask_targeted());
+    let sf = at(&h, "Smart Filters");
+    click_at(&mut h, sf);
+    assert_eq!(h.state().session.active().unwrap().active_layer, Some(LayerId(a)));
+    assert!(h.state().filter_mask_targeted(), "clicking Smart Filters targets the filter mask");
+    assert_eq!(crate::canvas::paint_target(h.state()), json!("filterMask"));
+
+    // Clicking an individual filter row clears the filter mask target.
+    let offset = at(&h, "Offset");
+    click_at(&mut h, offset);
+    assert!(!h.state().filter_mask_targeted());
+    assert_eq!(crate::canvas::paint_target(h.state()), json!("pixels"));
+
+    // Clicking Smart Filters again re-targets the filter mask, and clicking the Smart Object row clears it.
+    let sf = at(&h, "Smart Filters");
+    click_at(&mut h, sf);
+    assert!(h.state().filter_mask_targeted());
+    let row = at(&h, "Smart A");
+    click_at(&mut h, row);
+    assert!(!h.state().filter_mask_targeted());
+    assert_eq!(crate::canvas::paint_target(h.state()), json!("pixels"));
+}
+

@@ -2542,12 +2542,23 @@ fn layers(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         if id == "ui.maskTarget" {
             app.ui.mask_target = p.as_bool().unwrap_or(false);
             app.ui.vector_mask_target = false;
+            app.ui.filter_mask_target = false;
             app.sync_mask_targets();
             continue;
         }
         if id == "ui.vectorMaskTarget" {
             app.ui.vector_mask_target = p.as_bool().unwrap_or(false);
             app.ui.mask_target = false;
+            app.ui.filter_mask_target = false;
+            app.sync_mask_targets();
+            continue;
+        }
+        if id == "ui.filterMaskTarget" {
+            app.ui.filter_mask_target = p.as_bool().unwrap_or(false);
+            if app.ui.filter_mask_target {
+                app.ui.mask_target = false;
+                app.ui.vector_mask_target = false;
+            }
             app.sync_mask_targets();
             continue;
         }
@@ -2827,7 +2838,9 @@ fn layer_row(
     // Photoshop frames the targeted thumbnail (pixels, mask or vector mask) of the active layer
     // with corner brackets.
     if row.primary {
-        let target = if app.ui.vector_mask_target && vector_rect.is_some() {
+        let target = if app.filter_mask_targeted() {
+            None
+        } else if app.ui.vector_mask_target && vector_rect.is_some() {
             vector_rect
         } else if app.ui.mask_target {
             mask_rect.or(Some(thumb))
@@ -2898,6 +2911,7 @@ fn layer_row(
         let mode = select_mode(ui.input(|i| i.modifiers));
         actions.push(("layer.select".into(), json!({"layer": l.id.0, "mode": mode})));
         crate::smart_ui::deselect(ctx, doc.id);
+        actions.push(("ui.filterMaskTarget".into(), json!(false)));
         // A thumbnail explicitly selects content or a mask. Selecting an adjustment/fill row
         // defaults to its mask, but clicking its content thumbnail must leave the mask target.
         let pos = resp.interact_pointer_pos();

@@ -311,6 +311,7 @@ pub fn pointer_up(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2]) {
         "fontStyle": o.type_style,
         "size": o.type_size,
         "align": o.type_align,
+        "direction": o.type_direction,
         "color": hex(app.session.tools.foreground),
     });
     if w >= min && h >= min {
@@ -871,7 +872,8 @@ pub fn handle_keys(app: &mut PhotocraftApp, ctx: &egui::Context) -> bool {
                         kern_pair(app, id, ed.caret, if *key == Key::ArrowRight { step } else { -step });
                     }
                     Key::ArrowLeft | Key::ArrowRight => {
-                        let fwd = *key == Key::ArrowRight;
+                        let rtl = caret_is_rtl(app, id, ed.caret);
+                        let fwd = (*key == Key::ArrowRight) ^ rtl;
                         // Word movement: ⌘/Ctrl (Photoshop's; Alt is kerning), and Alt+Shift
                         // extends the selection by words; Home/End go to the line edges.
                         let to = if m.command || m.alt {
@@ -1078,8 +1080,28 @@ pub fn draw_overlay(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewX
             let c = if crate::theme::Tokens::get(painter.ctx()).pro { Color32::WHITE } else { Color32::BLACK };
             painter.line_segment([scr(x, top), scr(x, bot)], Stroke::new(1.5, c));
             painter.line_segment([scr(x, top), scr(x, bot)], Stroke::new(0.75, Color32::BLACK));
+            let rtl = if l.clusters.iter().any(|cl| cl.range.start == a || cl.range.end == a) {
+                l.caret_is_rtl(a)
+            } else {
+                styles_at(app).is_some_and(|(_, p)| p.direction == photocraft_doc::text::TextDirection::Rtl)
+            };
+            if rtl {
+                let flag = ((bot - top).abs() * 0.18).clamp(2.5, 6.0);
+                painter.line_segment([scr(x, top), scr(x - flag, top)], Stroke::new(1.5, c));
+                painter.line_segment([scr(x, top), scr(x - flag, top)], Stroke::new(0.75, Color32::BLACK));
+            }
         }
     }
+}
+
+/// Whether the caret at character index `char_idx` sits in a right-to-left cluster or paragraph.
+pub(crate) fn caret_is_rtl(app: &mut PhotocraftApp, id: LayerId, char_idx: usize) -> bool {
+    let Some((l, _, text)) = layout(app, id) else { return false };
+    let byte = byte_of(&text, char_idx);
+    if l.clusters.iter().any(|c| c.range.start == byte || c.range.end == byte) {
+        return l.caret_is_rtl(byte);
+    }
+    styles_at(app).is_some_and(|(_, p)| p.direction == photocraft_doc::text::TextDirection::Rtl)
 }
 
 /// The Type Mask tools while typing: Quick Mask's colour over the canvas with the glyphs clear,
@@ -1767,6 +1789,20 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     }
     ui.spacing_mut().item_spacing.x = 8.0;
     crate::widgets::vline(ui, 22.0);
+    let cur_dir = styles_at(app).map(|(_, p)| direction_name(p.direction)).unwrap_or(o.type_direction.as_str());
+    ui.spacing_mut().item_spacing.x = 2.0;
+    for (dir, tip, d) in [
+        ("auto", "Auto paragraph direction", photocraft_doc::text::TextDirection::Auto),
+        ("ltr", "Left-to-right paragraph direction", photocraft_doc::text::TextDirection::Ltr),
+        ("rtl", "Right-to-left paragraph direction", photocraft_doc::text::TextDirection::Rtl),
+    ] {
+        if toggle_cell(ui, 30.0, cur_dir == dir, tip, |ui, r, col| direction_glyph(ui.painter(), r, d, col)) {
+            app.ui.tool_options.type_direction = dir.into();
+            apply(app, ui.ctx(), json!({"direction": dir}));
+        }
+    }
+    ui.spacing_mut().item_spacing.x = 8.0;
+    crate::widgets::vline(ui, 22.0);
     // Text colour swatch with a picker popup.
     let c = shown
         .as_ref()
@@ -1968,6 +2004,23 @@ fn align_glyph(p: &egui::Painter, r: egui::Rect, a: photocraft_doc::text::TextAl
         };
         p.line_segment([egui::pos2(x0, y), egui::pos2(x0 + len, y)], Stroke::new(1.5, c));
     }
+}
+
+fn direction_name(d: photocraft_doc::text::TextDirection) -> &'static str {
+    match d {
+        photocraft_doc::text::TextDirection::Auto => "auto",
+        photocraft_doc::text::TextDirection::Ltr => "ltr",
+        photocraft_doc::text::TextDirection::Rtl => "rtl",
+    }
+}
+
+fn direction_glyph(p: &egui::Painter, r: egui::Rect, d: photocraft_doc::text::TextDirection, c: Color32) {
+    let label = match d {
+        photocraft_doc::text::TextDirection::Auto => "Auto",
+        photocraft_doc::text::TextDirection::Ltr => "¶→",
+        photocraft_doc::text::TextDirection::Rtl => "←¶",
+    };
+    p.text(r.center(), egui::Align2::CENTER_CENTER, label, egui::FontId::proportional(11.0), c);
 }
 
 /// A toggle button (faux styles, paragraph alignment) of width `w`, painted by `paint`.
@@ -2287,7 +2340,28 @@ fn type_sections(app: &mut PhotocraftApp, ui: &mut egui::Ui, character: bool, pa
                     align_glyph(ui.painter(), g, a, if para.align == a { col } else { t.icon });
                 });
                 if clicked {
+                    app.ui.tool_options.type_align = key.into();
                     apply(app, ui.ctx(), json!({"align": key}));
+                }
+            }
+        });
+        ui.add_space(ROW_GAP);
+        use photocraft_doc::text::TextDirection as D;
+        let dirs = [
+            ("auto", "Auto paragraph direction", D::Auto),
+            ("ltr", "Left-to-right paragraph direction", D::Ltr),
+            ("rtl", "Right-to-left paragraph direction", D::Rtl),
+        ];
+        let dw = cell_width(full, dirs.len());
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            for (key, tip, d) in dirs {
+                let clicked = toggle_cell(ui, dw, para.direction == d, tip, |ui, r, col| {
+                    direction_glyph(ui.painter(), r, d, if para.direction == d { col } else { t.icon });
+                });
+                if clicked {
+                    app.ui.tool_options.type_direction = key.into();
+                    apply(app, ui.ctx(), json!({"direction": key}));
                 }
             }
         });
@@ -2681,5 +2755,76 @@ mod tests {
         assert_eq!(word_boundary("hello big world", 0, true), 5);
         assert_eq!(word_boundary("hello big world", 7, false), 6);
         assert_eq!(word_boundary("hello big world", 15, false), 10);
+    }
+
+    #[test]
+    fn paragraph_direction_controls_and_visual_rtl_caret_work_in_panel_and_options_bar() {
+        use egui_kittest::Harness;
+        use egui_kittest::kittest::Queryable;
+        use photocraft_doc::text::TextDirection;
+
+        let mut app = app();
+        pointer_up(&mut app, [50.0, 100.0], [50.0, 100.0]);
+        insert(&mut app, "שלום");
+        let id = LayerId(app.ui.text_edit.as_ref().unwrap().layer);
+        assert_eq!(styles_at(&app).unwrap().1.direction, TextDirection::Auto);
+
+        // Paragraph panel: click Right-to-left paragraph direction.
+        let show_bar = std::cell::Cell::new(false);
+        let mut h = Harness::builder().with_size(egui::vec2(960.0, 320.0)).build_ui_state(
+            |ui, app: &mut PhotocraftApp| {
+                if !ui.ctx().fonts(|f| f.families().contains(&egui::FontFamily::Name("semibold".into()))) {
+                    return;
+                }
+                handle_keys(app, ui.ctx());
+                if show_bar.get() {
+                    ui.horizontal(|ui| options_bar(app, ui));
+                } else {
+                    character_panel(app, ui, true);
+                }
+            },
+            app,
+        );
+        PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ProMedium);
+        h.run_steps(2);
+        h.get_by_label("Right-to-left paragraph direction").click();
+        h.run_steps(2);
+        assert_eq!(styles_at(h.state()).unwrap().1.direction, TextDirection::Rtl);
+        assert_eq!(h.state().ui.tool_options.type_direction, "rtl");
+
+        // Type options bar: click Left-to-right, then Right-to-left.
+        show_bar.set(true);
+        h.run_steps(2);
+        h.get_by_label("Left-to-right paragraph direction").click();
+        h.run_steps(2);
+        assert_eq!(styles_at(h.state()).unwrap().1.direction, TextDirection::Ltr);
+        assert_eq!(h.state().ui.tool_options.type_direction, "ltr");
+
+        h.get_by_label("Right-to-left paragraph direction").click();
+        h.run_steps(2);
+        assert_eq!(styles_at(h.state()).unwrap().1.direction, TextDirection::Rtl);
+        assert_eq!(h.state().ui.tool_options.type_direction, "rtl");
+
+        {
+            let app = h.state_mut();
+            if let Some(ed) = app.ui.text_edit.as_mut() {
+                ed.caret = 0;
+                ed.anchor = 0;
+            }
+            assert!(caret_is_rtl(app, id, 0));
+            let (l, _, text) = layout(app, id).unwrap();
+            let x0 = l.caret(byte_of(&text, 0)).0;
+            let x1 = l.caret(byte_of(&text, 1)).0;
+            assert!(x0 > x1, "RTL caret at logical 0 sits to the right of logical 1 ({x0} vs {x1})");
+        }
+
+        // ArrowLeft in RTL moves visually left (advances logical caret from 0 to 1).
+        h.key_press(egui::Key::ArrowLeft);
+        h.run_steps(1);
+        assert_eq!(h.state().ui.text_edit.as_ref().unwrap().caret, 1);
+        // ArrowRight in RTL moves visually right (steps logical caret back from 1 to 0).
+        h.key_press(egui::Key::ArrowRight);
+        h.run_steps(1);
+        assert_eq!(h.state().ui.text_edit.as_ref().unwrap().caret, 0);
     }
 }
