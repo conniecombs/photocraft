@@ -1,11 +1,14 @@
 # PhotoCraft roadmap
 
-**Stage: alpha** · next: beta, ~30 points (ready for real work ~45% → ~75%, with reliable PSD) and ~1,100–1,800 h away
+**Stage: alpha** · last full readiness estimate (0.6.0, 2026-10-10): ~45%; beta target ~75% with reliable PSD, estimated at ~1,100–1,800 h
 
-> **Last reviewed:** 2026-10-11 · **Last updated:** 2026-10-13 · **Change:** minor (oracle floor 145 of 258 and 953 open issues, as in gaps.md and on GitHub; toolbox count 56 of 68, 12 missing) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 (full readiness assessment) · **Last updated:** 2026-10-15 · **Change:** minor (reconciled current measured counts, issue and PR snapshot, release version and dated estimates) · **Target:** Adobe Photoshop 2026
 
-PhotoCraft's one-page summary of how close it is to Adobe Photoshop 2026 (27.11.0, measured from
-the installed app on 2026-10-10) at version 0.6.0. Detail: [target-app parity](docs/target-app-parity.md)
+PhotoCraft's one-page summary against Adobe Photoshop 2026 (27.11.0, inspected on 2026-10-10).
+The readiness percentages and effort estimates were assessed for PhotoCraft 0.6.0; the current
+release is [0.9.0](https://github.com/storytold/photocraft/releases/tag/v0.9.0) (2026-10-14).
+Measured counts below have been refreshed where noted, but the estimates need a full re-grade.
+Detail: [target-app parity](docs/target-app-parity.md)
 (methodology, weights, evidence), [gaps](docs/gaps.md) (the ranked work list),
 [roadmap](docs/roadmap.md) (milestones, current focus), [scorecard](docs/scorecard.md) and
 [menu checklist](docs/parity-checklist.md) (both generated and measured),
@@ -19,8 +22,8 @@ About 80% of the work parallelizes.
 
 | | Value | Kind |
 |---|---|---|
-| **Feature breadth** | **~76%** | partly measured: menus 628/628, tools 56/68, panels 30/35, formats 13+4 of 31 |
-| **Ready for real work** | **~45%** (40–50%) | estimated: weighted by dimension below |
+| **Feature breadth** | **~76%** (2026-10-10 estimate) | measured components: menus 631/631 and tools 67/68 (2026-10-15); panels 30/35 and formats 13+4 of 31 (2026-10-10) |
+| **Ready for real work** | **~45%** (40–50%, 2026-10-10 estimate) | weighted by dimension below; not re-graded for 0.9.0 |
 | Mainstream practitioner | ~43% (38–48%) | estimated: weekly areas of a typical pro, with discounts ([method](docs/target-app-parity.md#mainstream-practitioner-43)) |
 | Essentials user | ~61% (55–67%) | estimated: core features only ([method](docs/target-app-parity.md#essentials-user-61)) |
 | Remaining to **beta** | **~1,100–1,800 h** | estimated |
@@ -40,7 +43,7 @@ the one above. About 80% parallelizes (independent crates and command modules); 
 architecture and the PSD writer are the serial parts.
 
 **Why alpha.** Core workflows (open, layer, select, paint, adjust, filter, type, save) work end to
-end, and breadth is high, but 953 issues are open (2026-10-13), 22 of 25 performance budgets
+end, and breadth is high, but 1,254 issues are open (2026-10-15; 764 additional open PRs), 22 of 25 performance budgets
 are missed, and PSDs we write are not yet reliably accepted by Photoshop (#1281, #2469). Beta
 needs ~75% ready and no blocking PSD gap. The [alpha gate](docs/roadmap.md#alpha-gate) passes: all six core workflows
 (retouch, composite, cut-out, design, paint, PSD exchange) complete end to end and save and reopen;
@@ -110,11 +113,11 @@ Also shipped: Traditional Chinese, Russian, Ukrainian, Czech, Polish, Greek, Dut
 
 | Rank | Milestone | Estimate |
 |---|---|---:|
-| 1 | PSD that Photoshop trusts: Save As corruption, Photoshop re-open check, Photoshop-oracle floor 145 → 200+ of 258 | 150–250 h |
+| 1 | PSD that Photoshop trusts: Save As corruption, Photoshop re-open check, Photoshop-oracle floor 188 → 200+ of 258 | 150–250 h |
 | 2 | Performance budgets: the 22 over-budget scenarios and the 150-layer GPU crash | 200–350 h |
 | 3 | User bug backlog to under 100 open | 250–400 h |
 | 4 | Brush and transform feel (brush-parity, ui-parity rows) | 160–290 h |
-| 5 | The 12 missing tools | 60–100 h |
+| 5 | Art History Brush, the remaining missing toolbox tool | re-estimate |
 
 Detail and the next releases: [docs/roadmap.md](docs/roadmap.md).
 
@@ -122,6 +125,8 @@ Detail and the next releases: [docs/roadmap.md](docs/roadmap.md).
 
 | Date | Entry |
 |---|---|
+| 2026-10-15 | Documentation counts reconciled against main and pinned corpus manifests; 0.9.0 is current, while readiness estimates remain the 0.6.0 assessment. |
+| 2026-10-14 | 0.9.0 released. |
 | 2026-10-10 | Full re-measure against Photoshop 2026 27.11.0 (installed bundle inspected): breadth ~76%, ready ~45%, alpha. Progress docs reorganized to the craftrules standard (`parity.md` → `parity-checklist.md`, `parity-estimate.md` merged into `target-app-parity.md`). 0.6.0 released. |
 | 2026-10-09 | Remove tool, Rotate View, crop rotation; OpenRaster and Paint.NET; 39 Affinity documents in the corpus |
 | 2026-10-08 | 0.5.0. Affinity import; Magnetic Lasso, Pattern Stamp, Mixer Brush, Pencil, Patch, Vertical Type on the toolbar |
@@ -135,6 +140,7 @@ Detail and the next releases: [docs/roadmap.md](docs/roadmap.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | Current issue/PR counts, 67/68 tools, 631/631 menus and 188/258 Photoshop-oracle floor reconciled; 0.6.0 readiness estimate explicitly dated, 0.9.0 release noted; G6 effort needs re-estimation |
 | 2026-10-13 | minor | Focus item 1 quoted the oracle floor as 133 of 256; it is 145 of 258 (`crates/io/tests/corpus.rs`, gaps.md G1). Open issues 579 → 953 (2026-10-13) |
 | 2026-10-11 | minor | Toolbox count 56 of 68 (12 missing) with the Convert Point tool (#3204) |
 | 2026-10-10 | minor | Readiness by audience with hours per tier |

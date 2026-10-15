@@ -4,7 +4,7 @@
 //! - `perf/budgets.toml` + `perf/baseline.json`: the performance table (the baseline's full-run
 //!   numbers against the budgets). A fresh `cargo xtask perf` result in `target/` is not used:
 //!   publish it with `cargo xtask perf --update-baseline`.
-//! - `crates/io/tests/corpus.rs`: the corpus floors (`Source { .. }` constants).
+//! - `crates/io/tests/corpus.rs`: the corpus floors (`Source { .. }` constants), with file totals from the pinned `xtask/*-corpus.sha256` manifests.
 //! - `scorecard/*.toml`: per-area checklists (id, target, status, issue, note).
 //! - the prefs audit: `Preferences` fields that no code outside `prefs.rs` / `prefs_ui.rs` reads.
 //! - counted from the tree: never-crash attribute coverage, `docs/parity-checklist.md`'s live count.
@@ -159,6 +159,29 @@ pub fn parse_corpus(src: &str) -> Vec<Corpus> {
         out.push(c);
     }
     out
+}
+
+/// Read the pinned manifests for the corpora known to xtask. The comment above each
+/// `Source` is descriptive; the manifest is the count used in the scorecard.
+fn refresh_corpus_counts(root: &Path, corpora: &mut [Corpus]) -> Result<(), String> {
+    for corpus in corpora {
+        let manifest = match corpus.dir.as_str() {
+            "corpus/psd" => "xtask/psd-corpus.sha256",
+            "corpus/psd-tools" => "xtask/psd-tools-corpus.sha256",
+            "corpus/photoshop" => "xtask/photoshop-corpus.sha256",
+            _ => continue,
+        };
+        let contents = std::fs::read_to_string(root.join(manifest)).map_err(|e| format!("read {manifest}: {e}"))?;
+        let count = contents.lines().filter(|line| !line.trim().is_empty()).count();
+        let count = u32::try_from(count).map_err(|_| format!("{manifest}: too many files"))?;
+        corpus.files = Some(count);
+        for (kind, floor) in [("oracle", corpus.pass_floor), ("round trip", corpus.roundtrip_floor)] {
+            if let Some(floor) = floor.filter(|floor| *floor > count) {
+                return Err(format!("{}: {kind} floor {floor} exceeds {count} pinned files in {manifest}", corpus.label));
+            }
+        }
+    }
+    Ok(())
 }
 
 // ---- prefs audit -----------------------------------------------------------------------------
@@ -474,7 +497,8 @@ pub fn gather(root: &Path) -> Result<Inputs, String> {
         Ok(t) => Some(serde_json::from_str(&t).map_err(|e| format!("{}: {e}", perf::BASELINE))?),
         Err(_) => None,
     };
-    let corpora = parse_corpus(&std::fs::read_to_string(root.join(CORPUS_RS)).map_err(|e| format!("read {CORPUS_RS}: {e}"))?);
+    let mut corpora = parse_corpus(&std::fs::read_to_string(root.join(CORPUS_RS)).map_err(|e| format!("read {CORPUS_RS}: {e}"))?);
+    refresh_corpus_counts(root, &mut corpora)?;
     Ok(Inputs {
         budgets,
         baseline,
@@ -789,6 +813,19 @@ const PHOTOSHOP: Source = Source { label: "photoshop oracles", dir: "corpus/phot
         assert_eq!((c[1].files, c[1].pass_floor, c[1].roundtrip_floor), (Some(309), Some(212), Some(307)));
         assert_eq!((c[2].dir.as_str(), c[2].files, c[2].pass_floor, c[2].roundtrip_floor), ("corpus/photoshop", Some(256), Some(74), Some(256)));
         assert!(parse_corpus("const X: u32 = 1;").is_empty());
+    }
+
+    #[test]
+    fn corpus_counts_follow_pinned_manifests() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut corpora = parse_corpus(include_str!("../../crates/io/tests/corpus.rs"));
+        refresh_corpus_counts(root, &mut corpora).unwrap();
+        let photoshop = corpora.iter().find(|c| c.dir == "corpus/photoshop").unwrap();
+        assert_eq!(photoshop.files, Some(258));
+
+        let photoshop = corpora.iter_mut().find(|c| c.dir == "corpus/photoshop").unwrap();
+        photoshop.roundtrip_floor = Some(259);
+        assert!(refresh_corpus_counts(root, &mut corpora).unwrap_err().contains("round trip floor 259 exceeds 258"));
     }
 
     #[test]
