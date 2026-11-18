@@ -145,7 +145,7 @@ pub(super) fn rules() -> Vec<SettingRule> {
     // The web build has no Agents page (`custom_rows::AGENTS_PAGE`): it shows the settings PhotoCraft had before the
     // ArtCraft Launcher's switch.
     if cfg!(target_arch = "wasm32") {
-        for key in ["connectAgents", "readRoot", "writeRoot", "whenAppClosed"] {
+        for key in ["connectAgents", "readRoot", "writeRoot", "whenAppClosed", "modelsFolder"] {
             tweak(&mut rules, &format!("integrations.{key}"), |r| r.hidden());
         }
     }
@@ -218,6 +218,9 @@ fn label_override(key: &str) -> Option<&'static str> {
         "lowLatencyDrawing" => "Low-Latency Drawing (vsync off, applies at next launch)",
         "sizeLimitMb" => "Scratch Size Limit (MB, 0 = No Limit)",
         "gpuMemoryMb" => "GPU Memory (MB, 0 = Automatic)",
+        "enableLocalModels" => "Enable Local AI Models",
+        "mlBackend" => "AI Compute Backend",
+        "modelsFolder" => "Local AI Models Folder",
         _ => return None,
     })
 }

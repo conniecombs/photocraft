@@ -56,6 +56,18 @@ pub(super) struct PrefsCustom {
     /// The suite's `AI-MCP` flag: the Agents page points to the ArtCraft Launcher's switch.
     #[cfg(not(target_arch = "wasm32"))]
     mcp_flag: bool,
+    /// Local ONNX model status rows for the AI Integrations page.
+    #[cfg(not(target_arch = "wasm32"))]
+    ml_models: Vec<photocraft_ml::ModelStatus>,
+    /// Resolved active ML compute backend summary (`wgpu (Adapter)` or `cpu`).
+    #[cfg(not(target_arch = "wasm32"))]
+    ml_active_backend: String,
+    /// Default `<config_dir>/Models` folder shown when `integrations.modelsFolder` is empty.
+    #[cfg(not(target_arch = "wasm32"))]
+    ml_default_folder: String,
+    /// Engine `ml.*` commands queued by model management buttons during a UI pass.
+    #[cfg(not(target_arch = "wasm32"))]
+    ml_commands: std::sync::Arc<std::sync::Mutex<Vec<(&'static str, Value)>>>,
 }
 
 impl PrefsCustom {
@@ -64,6 +76,17 @@ impl PrefsCustom {
     pub(super) fn new(app: &PhotocraftApp, picker_open: bool) -> Self {
         let mut gpu_info = app.perf.gpu_info.lines();
         gpu_info.extend(gpu_memory_lines(app));
+        #[cfg(not(target_arch = "wasm32"))]
+        let ml_active_backend = {
+            let snap = app.session.ml_snapshot();
+            let accel = photocraft_ml::resolve_backend(snap.backend);
+            match accel.adapter_name() {
+                Some(adapter) => format!("{} ({adapter})", accel.name()),
+                None => accel.name().to_string(),
+            }
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        let ml_default_folder = app.session.ml.effective_dir(app.session.prefs()).map(|p| p.display().to_string()).unwrap_or_default();
         PrefsCustom {
             suite: app.framework.suite().view(),
             picker_open,
@@ -75,6 +98,26 @@ impl PrefsCustom {
             agent_status: app.services.agent_link.as_ref().map(|link| link.status().clone()).unwrap_or_default(),
             #[cfg(not(target_arch = "wasm32"))]
             mcp_flag: app.services.agent_switch.as_ref().is_some_and(|switch| switch.mcp_flag()),
+            #[cfg(not(target_arch = "wasm32"))]
+            ml_models: app.session.ml.store.list_status(),
+            #[cfg(not(target_arch = "wasm32"))]
+            ml_active_backend,
+            #[cfg(not(target_arch = "wasm32"))]
+            ml_default_folder,
+            #[cfg(not(target_arch = "wasm32"))]
+            ml_commands: std::sync::Arc::default(),
+        }
+    }
+
+    pub(super) fn take_ml_commands(&self) -> Vec<(&'static str, Value)> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut guard = self.ml_commands.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            std::mem::take(&mut *guard)
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Vec::new()
         }
     }
 }
@@ -99,6 +142,10 @@ impl CustomSettings<PrefPages> for PrefsCustom {
     fn page(&mut self, ui: &mut egui::Ui, page: &str, draft: &mut SettingsDraft) {
         if page == AGENTS_PAGE {
             craft::automation::ui::agents::AgentsPage::new(AGENTS_PAGE, draft, &self.agent_status).mcp_flag(self.mcp_flag).show(ui);
+            ui.add_space(12.0);
+            ui.separator();
+            ui.add_space(8.0);
+            self.local_models_section(ui, draft);
         }
     }
 
@@ -389,4 +436,97 @@ fn tablet_input_row(ui: &mut egui::Ui, draft: &mut SettingsDraft) {
         ),
     );
     help(ui, tl!("Applies at next launch."));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl PrefsCustom {
+    fn queue_ml_cmd(&self, cmd: &'static str, params: Value) {
+        self.ml_commands.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((cmd, params));
+    }
+
+    fn local_models_section(&self, ui: &mut egui::Ui, draft: &mut SettingsDraft) {
+        Text::new(tl!("Local AI Models").to_string()).role(TypeRole::BodyStrong).show(ui);
+        help(
+            ui,
+            tl!(
+                "Optional open-weights ONNX vision models run locally on your device for Select Subject, Remove Background, Object Selection and Select Sky. When turned off or not downloaded, classical algorithms run instead."
+            ),
+        );
+
+        let stored_on: bool = draft.get("integrations.enableLocalModels").unwrap_or(false);
+        let mut next_on = stored_on;
+        Checkbox::new(Bind::bound(&mut next_on)).label(tl!("Enable Local AI Models")).id_salt("ml-enable-local").show(ui);
+        if next_on != stored_on {
+            draft.set("integrations.enableLocalModels", &next_on);
+        }
+
+        let backend_opts = [
+            ("auto".to_string(), tl!("Automatic (GPU when available)").to_string()),
+            ("gpu".to_string(), tl!("GPU (wgpu compute)").to_string()),
+            ("cpu".to_string(), tl!("CPU").to_string()),
+        ];
+        let current_backend: String = draft.get("integrations.mlBackend").unwrap_or_else(|| "auto".into());
+        if let Some(next_backend) = choose(ui, tl!("AI Compute Backend"), "ml-compute-backend", current_backend.clone(), &backend_opts)
+            && next_backend != current_backend
+        {
+            draft.set("integrations.mlBackend", &next_backend);
+        }
+        help(ui, &crate::i18n::fmt(tl!("Active compute backend: {backend}"), &[("backend", &self.ml_active_backend)]));
+
+        ui.horizontal(|ui| {
+            PathSetting::new(tl!("Local AI Models Folder"), "integrations.modelsFolder", draft, craft::host::PickRequest::folder("models")).show(ui);
+            if Button::new(tl!("Reload")).id_salt("ml-reload-folder").show(ui).clicked() {
+                self.queue_ml_cmd("ml.reload", json!({}));
+            }
+        });
+        if !self.ml_default_folder.is_empty() {
+            help(ui, &crate::i18n::fmt(tl!("Current models directory: {path}"), &[("path", &self.ml_default_folder)]));
+        }
+
+        ui.add_space(6.0);
+        let mut any_downloading = false;
+        for model in &self.ml_models {
+            any_downloading |= self.render_model_row(ui, model);
+        }
+        if any_downloading {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(120));
+        }
+    }
+
+    fn render_model_row(&self, ui: &mut egui::Ui, model: &photocraft_ml::ModelStatus) -> bool {
+        use photocraft_ml::DownloadState;
+        let size_str = crate::chrome_ui::fmt_bytes(model.size_bytes);
+        let header = format!("{} ({}, {})", model.name, model.license, size_str);
+        let mut downloading = false;
+
+        ui.horizontal(|ui| {
+            Text::new(header).role(TypeRole::BodyStrong).show(ui);
+            if let Some(dl) = &model.download
+                && matches!(dl.status, DownloadState::Downloading)
+            {
+                downloading = true;
+                let done_str = crate::chrome_ui::fmt_bytes(dl.downloaded_bytes);
+                let pct = if dl.total_bytes > 0 { (dl.downloaded_bytes as f64 * 100.0 / dl.total_bytes as f64).min(100.0) } else { 0.0 };
+                Text::new(format!("{done_str} / {size_str} ({pct:.0}%)")).role(TypeRole::Caption).show(ui);
+                if Button::new(tl!("Cancel")).id_salt(("ml-cancel", &model.id)).show(ui).clicked() {
+                    self.queue_ml_cmd("ml.cancelDownload", json!({ "id": model.id }));
+                }
+            } else if model.installed {
+                Text::new(tl!("Installed").to_string()).role(TypeRole::Caption).show(ui);
+                if Button::new(tl!("Remove")).id_salt(("ml-remove", &model.id)).show(ui).clicked() {
+                    self.queue_ml_cmd("ml.remove", json!({ "id": model.id }));
+                }
+            } else if Button::new(tl!("Download")).id_salt(("ml-download", &model.id)).show(ui).clicked() {
+                self.queue_ml_cmd("ml.download", json!({ "id": model.id }));
+            }
+        });
+        help(ui, &model.summary);
+        if let Some(dl) = &model.download
+            && let DownloadState::Failed(reason) = &dl.status
+        {
+            Text::new(reason.clone()).tone(Tone::Warn).show(ui);
+        }
+        ui.add_space(4.0);
+        downloading
+    }
 }

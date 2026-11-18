@@ -1702,7 +1702,46 @@ fn scratch_disk_browse_sets_only_its_draft_entry_and_cancel_keeps_it() {
 /// followed the preferences live).
 #[test]
 fn integrations_apply_without_a_restart() {
-    for key in ["allowAgentControl", "connectAgents", "controlPort", "readRoot", "writeRoot", "whenAppClosed"] {
+    for key in ["allowAgentControl", "connectAgents", "controlPort", "readRoot", "writeRoot", "whenAppClosed", "enableLocalModels", "mlBackend", "modelsFolder"]
+    {
         assert!(!super::fields::read_at_launch(&format!("integrations.{key}")), "{key}");
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn integrations_page_renders_local_ai_models_and_dispatches_ml_commands() {
+    use base64::Engine as _;
+    use egui_kittest::kittest::Queryable;
+    use photocraft_ml::onnx::builder::{ModelBuilder, NodeBuilder};
+    use photocraft_ml::onnx::{Dim, ElemType};
+
+    let tiny_onnx = ModelBuilder::new("ui_test_model")
+        .input("input", ElemType::Float, vec![Dim::Fixed(1), Dim::Fixed(3), Dim::Fixed(8), Dim::Fixed(8)])
+        .output("output", ElemType::Float, vec![Dim::Fixed(1), Dim::Fixed(1), Dim::Fixed(8), Dim::Fixed(8)])
+        .initializer("w", &photocraft_ml::Tensor::from_f32(vec![1, 3, 1, 1], vec![1.0, 0.0, 0.0]).unwrap())
+        .node(NodeBuilder::new("Conv", &["input", "w"], &["logits"]))
+        .node(NodeBuilder::new("Sigmoid", &["logits"], &["output"]))
+        .build();
+    let encoded = base64::engine::general_purpose::STANDARD.encode(tiny_onnx);
+
+    let files = Arc::new(MemoryFiles::new());
+    let mut h = prefs_harness(&files, "integrations", vec2(1280.0, 1100.0), move |app| {
+        app.run("ml.install", json!({ "id": "modnet-photographic", "task": "subject", "data": encoded })).unwrap();
+    });
+
+    assert!(h.query_by_label("Local AI Models").is_some());
+    assert!(!h.state().session.prefs().integrations.enable_local_models);
+    assert!(h.state().session.ml.store.has_task_model(photocraft_ml::ModelTask::Subject));
+
+    // Toggle Enable Local AI Models and click Remove on the installed MODNet row.
+    h.get_by_label("Enable Local AI Models").click();
+    h.run_steps(3);
+    h.get_by_label("Remove").click();
+    h.run_steps(4);
+    assert!(!h.state().session.ml.store.has_task_model(photocraft_ml::ModelTask::Subject));
+
+    h.get_by_label("OK").click();
+    h.run_steps(4);
+    assert!(h.state().session.prefs().integrations.enable_local_models);
 }

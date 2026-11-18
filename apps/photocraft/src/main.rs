@@ -555,10 +555,15 @@ fn main() -> eframe::Result {
             let session = {
                 let mut session = Session::new();
                 session.print_spooler = print_portal::spooler();
+                session.set_default_models_dir(services::models_dir());
                 session
             };
             #[cfg(not(target_os = "linux"))]
-            let session = Session::new();
+            let session = {
+                let mut session = Session::new();
+                session.set_default_models_dir(services::models_dir());
+                session
+            };
             // Before the first pass: the one install of the craft runtime must see every pass from
             // the first (R71); the app then runs on that context.
             PhotocraftApp::setup_window(&cc.egui_ctx, Default::default(), decision);

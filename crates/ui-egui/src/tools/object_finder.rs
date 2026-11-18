@@ -19,7 +19,7 @@ use craft::ui::canvas_controls::{HoverMask, HoverOutline, HoverShape};
 use craft::ui::contract::Show as _;
 use photocraft_algo::selection::Region;
 use photocraft_doc::{DocId, Document, LayerId};
-use photocraft_engine::smartselect_cmds::{empty_sampled_area, find_object, sampled_target};
+use photocraft_engine::smartselect_cmds::{empty_sampled_area, find_object_with_ml, sampled_target};
 
 use crate::PhotocraftApp;
 use crate::canvas::tools::in_gesture;
@@ -155,7 +155,8 @@ pub(crate) fn update(app: &mut PhotocraftApp, at: Option<[f64; 2]>, pressed: boo
     }
     let missed = f.misses.iter().any(|m| (m[0] - px[0]).abs() <= 2 && (m[1] - px[1]).abs() <= 2);
     if f.shown.is_none() && f.job.is_none() && !missed && now - f.since >= DEBOUNCE && doc_arc.bounds().contains(px[0], px[1]) {
-        f.job = Some(spawn(Arc::clone(&doc_arc), layer, all_layers, px, at, ctx.clone()));
+        let ml = app.session.ml_snapshot();
+        f.job = Some(spawn(Arc::clone(&doc_arc), layer, all_layers, (px, at), ctx.clone(), ml));
     }
     let resting = f.shown.is_none() && !missed && now - f.since < DEBOUNCE;
     if resting {
@@ -172,12 +173,19 @@ pub(crate) fn update(app: &mut PhotocraftApp, at: Option<[f64; 2]>, pressed: boo
 }
 
 /// Starts the lookup at `at`; the job asks `ctx` for a repaint when it has sent its result.
-fn spawn(doc: Arc<Document>, layer: Option<LayerId>, all_layers: bool, px: [i32; 2], at: [f64; 2], ctx: egui::Context) -> Job {
+fn spawn(
+    doc: Arc<Document>,
+    layer: Option<LayerId>,
+    all_layers: bool,
+    (px, at): ([i32; 2], [f64; 2]),
+    ctx: egui::Context,
+    ml: photocraft_engine::ml_cmds::MlSnapshot,
+) -> Job {
     let (tx, rx) = std::sync::mpsc::channel();
     let work = {
         let doc = Arc::clone(&doc);
         move || {
-            let found = find_object(&doc, layer, all_layers, at[0] as f32, at[1] as f32).map(|r| {
+            let found = find_object_with_ml(Some(&ml), &doc, layer, all_layers, at[0] as f32, at[1] as f32).map(|r| {
                 let mask = mask_of(&r);
                 (Arc::new(r), mask)
             });

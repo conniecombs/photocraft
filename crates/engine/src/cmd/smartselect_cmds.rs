@@ -185,7 +185,28 @@ pub fn sampled_target(doc: &Document, layer: Option<LayerId>, all_layers: bool) 
 /// sampling `layer` (or the composite). Pure, so the UI can run it on a worker thread while the
 /// pointer hovers; `select.object` with `"point"` commits the same result.
 pub fn find_object(doc: &Document, layer: Option<LayerId>, all_layers: bool, x: f32, y: f32) -> Option<Region> {
-    with_doc_sampler(doc, layer, all_layers, |smp, doc| grabcut::object_at(smp, doc.bounds(), x, y, grabcut::OBJECT_AT_WORK_PX))
+    find_object_with_ml(None, doc, layer, all_layers, x, y)
+}
+
+/// [`find_object`] using `ml` (`SAM 2.1 Tiny` when local AI models are enabled and installed,
+/// falling back to classical GrabCut otherwise).
+pub fn find_object_with_ml(
+    ml: Option<&crate::ml_cmds::MlSnapshot>,
+    doc: &Document,
+    layer: Option<LayerId>,
+    all_layers: bool,
+    x: f32,
+    y: f32,
+) -> Option<Region> {
+    with_doc_sampler(doc, layer, all_layers, |smp, doc| {
+        if let Some(ml_snap) = ml {
+            let prompt = photocraft_ml::Sam2Prompt::Point { x: x.floor() as i32, y: y.floor() as i32 };
+            if let Some(reg) = crate::ml_cmds::try_select_object(ml_snap, smp, doc, doc.bounds(), prompt, &photocraft_raster::Interrupt::NONE) {
+                return Some(reg);
+            }
+        }
+        grabcut::object_at(smp, doc.bounds(), x, y, grabcut::OBJECT_AT_WORK_PX)
+    })
 }
 
 /// Most objects remembered by [`ObjectFinderCache`].
@@ -375,7 +396,9 @@ fn object_at_point(s: &mut Session, p: &Value, (x, y): (f32, f32)) -> Result<Val
         Some(r) => Some(r),
         None => {
             let doc = std::sync::Arc::clone(&d.doc);
-            let found = find_object(&doc, d.active_layer, all_layers, x, y).map(std::sync::Arc::new);
+            let active = d.active_layer;
+            let ml = s.ml_snapshot();
+            let found = find_object_with_ml(Some(&ml), &doc, active, all_layers, x, y).map(std::sync::Arc::new);
             if let Some(r) = &found {
                 s.object_finder.insert(&doc, target, std::sync::Arc::clone(r));
             }
@@ -421,7 +444,11 @@ fn object_selection(s: &mut Session, p: &Value) -> Result<Value> {
     let d = s.active().ok_or(EngineError::NoDocument)?;
     check_sampled_pixels(&d.doc, d.active_layer, all_layers, rect)?;
     let canvas = d.doc.bounds();
-    let found = with_sampler(s, all_layers, |smp, doc| grabcut::object_select(smp, doc.bounds(), rect, 160_000))?;
+    let ml = s.ml_snapshot();
+    let found = with_sampler(s, all_layers, |smp, doc| {
+        crate::ml_cmds::try_select_object(&ml, smp, doc, doc.bounds(), photocraft_ml::Sam2Prompt::Box(rect), &photocraft_raster::Interrupt::NONE)
+            .or_else(|| grabcut::object_select(smp, doc.bounds(), rect, 160_000))
+    })?;
     apply(s, "Object Selection", object_edge(canvas, p, found.as_ref()).as_deref(), mode(p, "replace"))
 }
 
@@ -462,7 +489,13 @@ fn select_subject(s: &mut Session, p: &Value) -> Result<Value> {
         c.region.clone()
     } else {
         let doc = std::sync::Arc::clone(&d.doc);
-        let region = with_doc_sampler(&doc, d.active_layer, all_layers, |smp, doc| subject::select_subject(smp, doc.bounds())).map(std::sync::Arc::new);
+        let active = d.active_layer;
+        let ml = s.ml_snapshot();
+        let region = with_doc_sampler(&doc, active, all_layers, |smp, doc| {
+            crate::ml_cmds::try_select_subject(&ml, smp, doc, doc.bounds(), &photocraft_raster::Interrupt::NONE)
+                .or_else(|| subject::select_subject(smp, doc.bounds()))
+        })
+        .map(std::sync::Arc::new);
         s.subject_cache = SubjectCache { doc: std::sync::Arc::downgrade(&doc), doc_id: Some(doc.id), target, region: region.clone() };
         region
     };
@@ -574,12 +607,13 @@ fn refine_edge(s: &mut Session, p: &Value) -> Result<Value> {
     // Before anything is painted: a thin stroke across a huge canvas paints few pixels but many tiles.
     select_mask_edits::check_size(&edits, d.doc.bounds())?;
     select_mask_edits::check_strokes(&strokes, d.doc.bounds())?;
+    let ml = s.ml_snapshot();
     let region = with_sampler(s, b(p, "sampleAllLayers", false), |smp, doc| {
         let mask_surf = active.and_then(|id| doc.layer(id)).and_then(|l| l.mask.as_ref()).map(|m| &m.surface);
         let target_mask = p.get("target").and_then(Value::as_str) == Some("mask");
         let start = if target_mask { mask_surf.or(doc.selection.as_ref()) } else { doc.selection.as_ref().or(mask_surf) };
         // The workspace's tool edits change the selection before its edge is refined.
-        let edited = if edits.is_empty() { None } else { select_mask_edits::apply(doc, active, start.cloned(), &edits) };
+        let edited = if edits.is_empty() { None } else { select_mask_edits::apply_with_ml(Some(&ml), doc, active, start.cloned(), &edits) };
         let Some(sel) = (if edits.is_empty() { start } else { edited.as_ref() }) else { return Ok(None) };
         let brush = matting::EdgeBrush::new(&strokes, doc.bounds());
         matting::refine_surface(smp, sel, doc.bounds(), &params, brush.as_ref()).map_err(|e| EngineError::Other(e.to_string()))

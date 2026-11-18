@@ -52,10 +52,18 @@ fn select_sky(s: &mut Session, p: &Value) -> Result<Value> {
     let canvas = doc.bounds();
     let params = SkyParams { threshold: f(p, "threshold", 50.0) as f32, softness: f(p, "softness", 50.0) as f32 };
     let all = p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(true);
-    let layer = d.active_layer.and_then(|id| doc.layer(id)).and_then(|l| l.surface());
+    let active_id = d.active_layer;
+    let ml = s.ml_snapshot();
+    let layer = active_id.and_then(|id| doc.layer(id)).and_then(|l| l.surface());
     let region = match (all, layer) {
-        (false, Some(surf)) => sky::select_sky(&SurfaceSampler(surf), canvas, params),
-        _ => sky::select_sky(&CompositeSampler(&doc), canvas, params),
+        (false, Some(surf)) => {
+            let smp = SurfaceSampler(surf);
+            crate::ml_cmds::try_select_sky(&ml, &smp, &doc, canvas, &photocraft_raster::Interrupt::NONE).or_else(|| sky::select_sky(&smp, canvas, params))
+        }
+        _ => {
+            let smp = CompositeSampler(&doc);
+            crate::ml_cmds::try_select_sky(&ml, &smp, &doc, canvas, &photocraft_raster::Interrupt::NONE).or_else(|| sky::select_sky(&smp, canvas, params))
+        }
     };
     let m = p.get("mode").and_then(Value::as_str).unwrap_or("replace");
     let m = SelectionMode::parse(if m == "new" { "replace" } else { m });

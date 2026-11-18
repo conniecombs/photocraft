@@ -154,6 +154,7 @@ pub(crate) struct PcSelectMaskSource {
     /// Document pixels per reduced-copy pixel without High Quality Preview.
     k: u32,
     display: Option<Arc<photocraft_engine::display_color::CanvasDisplay>>,
+    ml: photocraft_engine::ml_cmds::MlSnapshot,
     image: Arc<SharedPicture>,
     shared: Arc<Shared>,
 }
@@ -165,6 +166,7 @@ impl PcSelectMaskSource {
         layer: Option<LayerId>,
         target_mask: bool,
         display: Option<Arc<photocraft_engine::display_color::CanvasDisplay>>,
+        ml: photocraft_engine::ml_cmds::MlSnapshot,
     ) -> Self {
         let size = [doc.size.width, doc.size.height];
         let k = u32::try_from((size[0].max(size[1]) as usize).div_ceil(PROXY_SIDE).max(1)).unwrap_or(u32::MAX);
@@ -179,14 +181,14 @@ impl PcSelectMaskSource {
             error: Mutex::new(None),
             last_request: Mutex::new(None),
         });
-        PcSelectMaskSource { doc, revision, layer, target_mask, k, display, image, shared }
+        PcSelectMaskSource { doc, revision, layer, target_mask, k, display, ml, image, shared }
     }
 
     /// The source over the active document as it is now.
     fn of_active(app: &PhotocraftApp, layer: Option<LayerId>, target_mask: bool) -> Option<Self> {
         let st = app.session.active()?;
         let display = crate::canvas::canvas_display(app, &st.doc, None).0;
-        Some(Self::new(Arc::clone(&st.doc), st.revision, layer, target_mask, display))
+        Some(Self::new(Arc::clone(&st.doc), st.revision, layer, target_mask, display, app.session.ml_snapshot()))
     }
 
     /// The job's inputs for `request`.
@@ -208,6 +210,7 @@ impl PcSelectMaskSource {
             params,
             recipe: request.recipe.clone(),
             cache: lock(&self.shared.cache).clone(),
+            ml: self.ml.clone(),
         }
     }
 }
@@ -272,6 +275,7 @@ struct Job {
     params: Value,
     recipe: MaskViewRecipe,
     cache: Option<Cache>,
+    ml: photocraft_engine::ml_cmds::MlSnapshot,
 }
 
 /// A computed preview, before it is written to the source.
@@ -523,7 +527,7 @@ fn compute(job: Job, cancel: &Cancel) -> Result<Computed, String> {
             None => (start(), 0),
         };
         let rest = scaled(job.edits.get(done..).unwrap_or_default())?;
-        let base = select_mask_edits::apply(&doc, layer, from, &rest);
+        let base = select_mask_edits::apply_with_ml(Some(&job.ml), &doc, layer, from, &rest);
         base_cache = BaseCache { k, revision: job.revision, edits: job.edits.clone(), base: base.clone() };
         // Nothing selected is an empty selection, not "use the layer mask".
         doc.selection = Some(base.unwrap_or_else(|| Surface::new(photocraft_color::PixelFormat::GRAY8)));

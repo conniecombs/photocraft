@@ -761,7 +761,7 @@ fn preference_uses_ambient_filesystem(path: &str) -> bool {
     let key = segments.next();
     matches!(section, "colorSettings" | "scriptEvents" | "historyLog" | "plugIns" | "scratchDisks")
         || (section == "fileHandling" && key.is_none_or(|key| key == "lutFolder"))
-        || (section == "integrations" && key.is_none_or(|key| matches!(key, "readRoot" | "writeRoot")))
+        || (section == "integrations" && key.is_none_or(|key| matches!(key, "readRoot" | "writeRoot" | "modelsFolder")))
 }
 
 fn command_uses_ambient_path(id: &str, params: &Value) -> bool {
@@ -785,7 +785,11 @@ fn command_uses_ambient_path(id: &str, params: &Value) -> bool {
         "edit.keyboardShortcuts" => {
             params.get("path").is_some() || ["importKys", "exportKys", "summarize"].iter().any(|k| params.get(*k).and_then(|v| v.get("path")).is_some())
         }
-        "plugin.reload" => true,
+        "plugin.reload" | "ml.download" | "ml.remove" | "ml.reload" => true,
+        "ml.install" => {
+            let has_inline = params.get("data").is_some() || (params.get("encoderData").is_some() && params.get("decoderData").is_some());
+            !has_inline && params.get("path").is_some()
+        }
         _ => false,
     }
 }

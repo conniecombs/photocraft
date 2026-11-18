@@ -13,6 +13,7 @@ gpu = [
     "dep:wgpu",
     "dep:pollster",
     "photocraft-gpu/native",
+    "photocraft-engine/gpu",
 ]
 
 [lints]

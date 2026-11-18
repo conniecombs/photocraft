@@ -55,28 +55,44 @@ fn run(s: &mut Session, p: &Value) -> Result<Value> {
     let sample_all = p.get("sampleAllLayers").and_then(Value::as_bool).unwrap_or(false);
     let refine = p.get("refine").and_then(Value::as_bool).unwrap_or(true);
     let area = subject_area(layer, doc.bounds(), sample_all);
+    let ml = s.ml_snapshot();
     crate::jobs::edit_job(
         s,
         "Remove Background",
         move |doc, _, ctx| {
-            // Cancel reaches the min cuts inside Select Subject, so Esc doesn't wait for them.
-            let found = ctx
-                .stage(0.1, 0.6, "Finding subject", |ctl| with_doc_sampler(doc, Some(id), sample_all, |smp, _| subject::select_subject_with(smp, area, ctl)))
-                .map_err(|_| EngineError::Cancelled)?;
-            let region = found.ok_or_else(|| EngineError::Other("no subject found".into()))?;
-            let mut surface = matting::region_surface(&region);
-            if ctx.cancelled() {
-                return Err(EngineError::Cancelled);
-            }
-            if refine {
-                let refined = ctx.stage(0.6, 0.95, "Refining edge", |interrupt| {
-                    with_doc_sampler(doc, Some(id), sample_all, |smp, _| matting::refine_surface_with_interrupt(smp, &surface, area, &REFINE, None, interrupt))
-                });
-                surface = refined.map_err(|e| EngineError::Other(e.to_string()))?.unwrap_or(surface);
+            let ml_surf = ctx.stage(0.1, 0.9, "Finding subject", |ctl| {
+                with_doc_sampler(doc, Some(id), sample_all, |smp, doc| crate::ml_cmds::try_subject_surface(&ml, smp, doc, area, ctl))
+            })?;
+            let surface = if let Some(surf) = ml_surf {
                 if ctx.cancelled() {
                     return Err(EngineError::Cancelled);
                 }
-            }
+                surf
+            } else {
+                // Cancel reaches the min cuts inside Select Subject, so Esc doesn't wait for them.
+                let found = ctx
+                    .stage(0.1, 0.6, "Finding subject", |ctl| {
+                        with_doc_sampler(doc, Some(id), sample_all, |smp, _| subject::select_subject_with(smp, area, ctl))
+                    })
+                    .map_err(|_| EngineError::Cancelled)?;
+                let region = found.ok_or_else(|| EngineError::Other("no subject found".into()))?;
+                let mut surface = matting::region_surface(&region);
+                if ctx.cancelled() {
+                    return Err(EngineError::Cancelled);
+                }
+                if refine {
+                    let refined = ctx.stage(0.6, 0.95, "Refining edge", |interrupt| {
+                        with_doc_sampler(doc, Some(id), sample_all, |smp, _| {
+                            matting::refine_surface_with_interrupt(smp, &surface, area, &REFINE, None, interrupt)
+                        })
+                    });
+                    surface = refined.map_err(|e| EngineError::Other(e.to_string()))?.unwrap_or(surface);
+                    if ctx.cancelled() {
+                        return Err(EngineError::Cancelled);
+                    }
+                }
+                surface
+            };
             crate::extra_cmds::background_to_layer_for_mask(doc, id);
             let mask = crate::commands::mask_at_depth(LayerMask { surface: surface.clone(), ..LayerMask::reveal_all() }, doc.depth)?;
             doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?.mask = Some(mask);

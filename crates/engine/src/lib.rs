@@ -122,6 +122,7 @@ pub use cmd::lens_cmds;
 pub use cmd::magnetic_cmds;
 pub use cmd::mask_view_cmds;
 use cmd::migrate_cmds;
+pub use cmd::ml_cmds;
 pub use cmd::mode_cmds;
 pub use cmd::multichannel_cmds;
 pub use cmd::notes_cmds;
@@ -317,6 +318,8 @@ pub struct Session {
     /// Object Selection's Object Finder results (#4087), shared by the hover preview and the
     /// click that commits it; valid while the pixels are unchanged.
     pub object_finder: smartselect_cmds::ObjectFinderCache,
+    /// Local ONNX model registry and SAM-2 embedding cache (`photocraft-ml`).
+    pub ml: ml_cmds::MlRuntime,
     /// A finished live stroke offered to the `paint.stroke` / `paint.pencil` that commits it
     /// ([`Session::offer_live_stroke`]).
     pub(crate) live_commit: Option<brush_cmds::LiveCommit>,
@@ -344,6 +347,19 @@ pub struct Session {
     /// Commands that left the whole document to redraw (`last_damage` None) while changing under
     /// 25 % of it ([`Session::dispatch`]). Counted in debug and test builds only; tests read it.
     pub whole_redraws: usize,
+}
+
+impl Session {
+    /// Thread-safe snapshot of local ML preferences and model caches for worker threads.
+    pub fn ml_snapshot(&self) -> ml_cmds::MlSnapshot {
+        self.ml.snapshot(self.prefs())
+    }
+
+    /// Configure the platform default `Models` folder (used when `integrations.modelsFolder` is empty).
+    pub fn set_default_models_dir(&mut self, dir: Option<std::path::PathBuf>) {
+        let prefs = self.prefs().clone();
+        self.ml.set_default_models_dir(dir, &prefs);
+    }
 }
 
 #[cfg(test)]

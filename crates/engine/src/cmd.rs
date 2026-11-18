@@ -125,6 +125,7 @@ pub mod lens_cmds;
 pub mod magnetic_cmds;
 pub mod mask_view_cmds;
 pub(super) mod migrate_cmds;
+pub mod ml_cmds;
 pub mod mode_cmds;
 pub mod multichannel_cmds;
 #[cfg(test)]
@@ -1454,6 +1455,7 @@ fn build() -> Vec<CommandSpec> {
     v.extend(crate::rasterize_style_cmds::specs());
     v.extend(crate::variables_cmds::specs());
     v.extend(crate::plugin_cmds::specs());
+    v.extend(crate::ml_cmds::specs());
     v.extend(crate::group_view_cmds::specs());
     v.extend(crate::fx_view_cmds::specs());
     v.extend(crate::fx_visibility_cmds::specs());

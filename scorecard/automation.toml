@@ -56,9 +56,9 @@ note = "runtime.rs:15 ABI_VERSION = 1; manifest.rs:18 Kind::Filter only"
 [[item]]
 id = "AUTO-219-7"
 target = "Local ONNX models behind a flag, managed in Preferences; subject select, background removal"
-status = "missing"
+status = "done"
 issue = 219
-note = "No ONNX runtime dependency"
+note = "2026-11-17: crates/ml (photocraft-ml, pure-Rust ONNX runtime with wgpu compute shaders + rayon CPU fallback, SHA-256 ModelStore and on-demand HTTPS downloads for MODNet Apache-2.0, BiRefNet-lite MIT and SAM 2.1 Tiny Apache-2.0); behind integrations.enableLocalModels (default false) and managed in Edit › Preferences › AI Integrations (ml.list/install/download/cancelDownload/remove/reload); wired into select.subject, layer.removeBackground (8/16/32f continuous float masks), select.object (point/hover/box with cached embeddings), select.sky and Select and Mask"
 
 [[item]]
 id = "AUTO-219-8"

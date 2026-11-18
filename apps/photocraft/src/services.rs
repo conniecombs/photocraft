@@ -93,6 +93,12 @@ pub fn presets_dir() -> Option<PathBuf> {
     config_dir().map(|d| d.join("Presets"))
 }
 
+/// Default local AI models folder (`<config_dir>/Models`), used when `integrations.modelsFolder`
+/// is empty.
+pub fn models_dir() -> Option<PathBuf> {
+    config_dir().map(|d| d.join("Models"))
+}
+
 /// Crash-recovery autosaves: under the settings directory, except where that is synced with the
 /// settings: the Windows roaming profile and the Linux config folder (see
 /// [`crate::app_dirs::resolve_recovery`]).

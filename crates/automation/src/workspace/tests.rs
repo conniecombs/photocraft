@@ -1603,3 +1603,24 @@ fn csh_import_with_inline_data_ignores_an_unreadable_path() {
     assert_eq!(result["names"], serde_json::json!(["Inline"]), "{result}");
     assert_eq!(result["group"], "Inline Set", "{result}");
 }
+
+#[test]
+fn ml_commands_and_models_folder_are_capability_gated_in_automation() {
+    // Ambient disk folder preference is refused; non-path local ML toggles are allowed.
+    assert!(authorize_engine_command("prefs.set", &serde_json::json!({"path": "integrations.modelsFolder", "value": "/etc"})).is_err());
+    assert!(authorize_engine_command("prefs.set", &serde_json::json!({"values": {"integrations.modelsFolder": "/etc"}})).is_err());
+    assert!(
+        authorize_engine_command("prefs.set", &serde_json::json!({"values": {"integrations.enableLocalModels": true, "integrations.mlBackend": "cpu"}}))
+            .is_ok()
+    );
+
+    // Disk/network model mutations are refused; read-only listing and inline base64 install are allowed.
+    for denied in ["ml.download", "ml.remove", "ml.reload"] {
+        assert!(authorize_engine_command(denied, &serde_json::json!({"id": "modnet-photographic"})).is_err(), "{denied}");
+    }
+    assert!(authorize_engine_command("ml.install", &serde_json::json!({"path": "/outside/model.onnx"})).is_err());
+    assert!(authorize_engine_command("ml.install", &serde_json::json!({"id": "m", "data": "QUJD"})).is_ok());
+    assert!(authorize_engine_command("ml.install", &serde_json::json!({"id": "s", "encoderData": "QUJD", "decoderData": "QUJD"})).is_ok());
+    assert!(authorize_engine_command("ml.list", &serde_json::json!({})).is_ok());
+    assert!(authorize_engine_command("ml.cancelDownload", &serde_json::json!({"id": "modnet-photographic"})).is_ok());
+}

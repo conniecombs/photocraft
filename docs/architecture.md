@@ -1,6 +1,6 @@
 # PhotoCraft architecture
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-20 · **Change:** minor (accurate GPU matrix/TRC display conversion; large payloads in the document model are `Arc`-shared, #4535; original design plan retained) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-11-17 · **Change:** minor (`photocraft-ml` Layer 4 pure-Rust ONNX runtime landed; accurate GPU matrix/TRC display conversion; large payloads in the document model are `Arc`-shared, #4535; original design plan retained) · **Target:** Adobe Photoshop 2026
 
 ## Current state (2026-10-10)
 
@@ -22,7 +22,8 @@ What exists on `main` today. The numbered sections below are the original design
 - **Files:** own PSD/PSB crate (`psd`), flat codecs (`codecs`), camera raw (`raw`), HEIF (`craft-heif`, from craft-libs),
   Affinity (`affinity`), document mapping (`io`), native `.pcraft` (`format`, atomic saves).
   Coverage: [`file-format-parity.md`](file-format-parity.md).
-- **Not built (yet) from the plan:** the `ml` crate (no ML runtime; see gap G15), plug-in ABI v2.
+- **ML (`ml`):** pure-Rust, `unsafe`-free ONNX (`ModelProto`) inference runtime (`wgpu` WGSL compute shaders + parallel `rayon` CPU fallback, `wasm32`-compatible), SHA-256 verified `ModelStore`, and Tier 1 segmentation/matting pipelines (`MODNet`, `BiRefNet-lite`, `SAM 2.1 Tiny`), behind opt-in `integrations.enableLocalModels`.
+- **Not built (yet) from the plan:** plug-in ABI v2.
 - **Deviations from the plan below:** `photocraft-tablet` is the one crate allowed `unsafe`
   (AppKit pen events); `affinity`, `heif` and `raw` crates were added; the phased roadmap in §15
   is superseded by [`roadmap.md`](roadmap.md).

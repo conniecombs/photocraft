@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~30 points (ready for real work ~45% → ~75%, with reliable PSD) and ~1,100–1,800 h away
 
-> **Last reviewed:** 2026-10-17 · **Last updated:** 2026-10-22 · **Change:** minor (Print: Japanese paper sizes — はがき, 往復はがき, JIS B5/B4, A6, L判, 2L判, KG判, 六切, 四切; previously: Object Finder retains large enclosed foregrounds (#6548); Russian catalog covers every dynamic label; previously minor: oracle floor 145 of 258 and 953 open issues, as in gaps.md and on GitHub; toolbox count 56 of 68, 12 missing) · **Target:** Adobe Photoshop 2026
+> **Last reviewed:** 2026-10-17 · **Last updated:** 2026-11-17 · **Change:** minor (`photocraft-ml` local ONNX vision runtime, Preferences › AI Integrations model manager, and ML Select Subject / Remove Background / Object Selection / Select Sky behind `integrations.enableLocalModels`, AUTO-219-7 done; previously: Print: Japanese paper sizes — はがき, 往復はがき, JIS B5/B4, A6, L判, 2L判, KG判, 六切, 四切; previously: Object Finder retains large enclosed foregrounds (#6548); Russian catalog covers every dynamic label; previously minor: oracle floor 145 of 258 and 953 open issues, as in gaps.md and on GitHub; toolbox count 56 of 68, 12 missing) · **Target:** Adobe Photoshop 2026
 
 PhotoCraft's one-page summary of how close it is to Adobe Photoshop 2026 (27.11.0, measured from
 the installed app on 2026-10-10) at version 0.6.0. Detail: [target-app parity](docs/target-app-parity.md)
@@ -59,7 +59,7 @@ four are partial in depth, none blocked.
 | Stability | 45% | 150–250 | [gaps](docs/gaps.md#g3-user-reported-bug-backlog) |
 | Platforms | 80% | 30–60 | [scorecard](docs/scorecard.md#distribution) |
 | Ecosystem / plug-ins / scripting | 15% | 250–450 | [gaps](docs/gaps.md#g16-plug-in-compatibility) |
-| AI features | 10% | 300–600 | [gaps](docs/gaps.md#g15-ai-and-generative-features) |
+| AI features | 20% | 260–550 | [gaps](docs/gaps.md#g15-ai-and-generative-features) |
 
 ## Features
 
@@ -80,7 +80,7 @@ four are partial in depth, none blocked.
 | Print, export, Save for Web | 50% | 60–100 |
 | Video / timeline, data-driven graphics | 30% | 100–200 |
 | Workspace, panels, preferences | 40% | 150–250 |
-| AI / generative | 10% | 300–600 |
+| AI / generative | 20% | 260–550 |
 
 Rows and evidence: [target-app-parity › Feature areas](docs/target-app-parity.md#feature-areas).
 

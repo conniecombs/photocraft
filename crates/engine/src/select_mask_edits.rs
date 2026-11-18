@@ -253,6 +253,17 @@ fn invert(base: Option<&Surface>, canvas: Rect) -> Option<Surface> {
 /// sampling tools reading `layer` (or the composite with Sample All Layers). A tool that finds
 /// nothing leaves the selection as it was, as the same tools do outside Select and Mask.
 pub fn apply_one(doc: &Document, layer: Option<LayerId>, base: Option<Surface>, edit: &SelectionEdit) -> Option<Surface> {
+    apply_one_with_ml(None, doc, layer, base, edit)
+}
+
+/// [`apply_one`] using `ml` when local AI models are enabled and installed.
+pub fn apply_one_with_ml(
+    ml: Option<&crate::ml_cmds::MlSnapshot>,
+    doc: &Document,
+    layer: Option<LayerId>,
+    base: Option<Surface>,
+    edit: &SelectionEdit,
+) -> Option<Surface> {
     let canvas = doc.bounds();
     let combine = |region: Option<Region>, m: SelectionMode| match region {
         Some(r) => combine_region(base.as_ref(), Some(&r), m),
@@ -276,13 +287,25 @@ pub fn apply_one(doc: &Document, layer: Option<LayerId>, base: Option<Surface>, 
         SelectionEdit::Lasso { points, add } => paint(sel::polygon_surface(points, canvas), *add),
         SelectionEdit::Object { area, add, sample_all_layers } => {
             let region = with_doc_sampler(doc, layer, *sample_all_layers, |smp, doc| match *area {
-                ObjectArea::Rect(r) => grabcut::object_select(smp, doc.bounds(), r, 160_000),
-                ObjectArea::Point(x, y) => grabcut::object_at(smp, doc.bounds(), x, y, grabcut::OBJECT_AT_WORK_PX),
+                ObjectArea::Rect(r) => ml
+                    .and_then(|m| {
+                        crate::ml_cmds::try_select_object(m, smp, doc, doc.bounds(), photocraft_ml::Sam2Prompt::Box(r), &photocraft_raster::Interrupt::NONE)
+                    })
+                    .or_else(|| grabcut::object_select(smp, doc.bounds(), r, 160_000)),
+                ObjectArea::Point(x, y) => ml
+                    .and_then(|m| {
+                        let pt = photocraft_ml::Sam2Prompt::Point { x: x.floor() as i32, y: y.floor() as i32 };
+                        crate::ml_cmds::try_select_object(m, smp, doc, doc.bounds(), pt, &photocraft_raster::Interrupt::NONE)
+                    })
+                    .or_else(|| grabcut::object_at(smp, doc.bounds(), x, y, grabcut::OBJECT_AT_WORK_PX)),
             });
             combine(region, mode(*add))
         }
         SelectionEdit::Subject { mode, sample_all_layers } => {
-            let region = with_doc_sampler(doc, layer, *sample_all_layers, |smp, doc| subject::select_subject(smp, doc.bounds()));
+            let region = with_doc_sampler(doc, layer, *sample_all_layers, |smp, doc| {
+                ml.and_then(|m| crate::ml_cmds::try_select_subject(m, smp, doc, doc.bounds(), &photocraft_raster::Interrupt::NONE))
+                    .or_else(|| subject::select_subject(smp, doc.bounds()))
+            });
             combine(region, *mode)
         }
         SelectionEdit::Clear => None,
@@ -294,6 +317,17 @@ pub fn apply_one(doc: &Document, layer: Option<LayerId>, base: Option<Surface>, 
 /// A run of Inverts is one Invert or none (pairs cancel exactly), so thousands of them cost at
 /// most one pass each between other edits (the #8783 review).
 pub fn apply(doc: &Document, layer: Option<LayerId>, base: Option<Surface>, edits: &[SelectionEdit]) -> Option<Surface> {
+    apply_with_ml(None, doc, layer, base, edits)
+}
+
+/// [`apply`] using `ml` when local AI models are enabled and installed.
+pub fn apply_with_ml(
+    ml: Option<&crate::ml_cmds::MlSnapshot>,
+    doc: &Document,
+    layer: Option<LayerId>,
+    base: Option<Surface>,
+    edits: &[SelectionEdit],
+) -> Option<Surface> {
     let mut sel = base;
     let mut invert = false;
     for e in edits {
@@ -302,12 +336,12 @@ pub fn apply(doc: &Document, layer: Option<LayerId>, base: Option<Surface>, edit
             continue;
         }
         if std::mem::take(&mut invert) {
-            sel = apply_one(doc, layer, sel, &SelectionEdit::Invert);
+            sel = apply_one_with_ml(ml, doc, layer, sel, &SelectionEdit::Invert);
         }
-        sel = apply_one(doc, layer, sel, e);
+        sel = apply_one_with_ml(ml, doc, layer, sel, e);
     }
     if invert {
-        sel = apply_one(doc, layer, sel, &SelectionEdit::Invert);
+        sel = apply_one_with_ml(ml, doc, layer, sel, &SelectionEdit::Invert);
     }
     sel
 }

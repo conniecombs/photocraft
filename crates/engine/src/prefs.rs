@@ -1249,9 +1249,15 @@ pub fn read_integrations_section(mut section: Value) -> Integrations {
     read_section(section)
 }
 
-/// Preferences › Agents: the framework's agent settings, saved flat in the `integrations` section
-/// (`allowAgentControl`, `controlPort`, `readRoot`, `writeRoot`, `whenAppClosed`), and PhotoCraft's
-/// consent from before the ArtCraft Launcher's switch.
+choice!(
+    /// Preferences › AI Integrations: compute backend for local ONNX vision models.
+    MlBackend { Auto = "auto", Gpu = "gpu", Cpu = "cpu" } default Auto
+);
+
+/// Preferences › Agents & Local AI Models: the framework's agent settings, saved flat in the
+/// `integrations` section (`allowAgentControl`, `controlPort`, `readRoot`, `writeRoot`,
+/// `whenAppClosed`), PhotoCraft's consent from before the ArtCraft Launcher's switch, and local
+/// ONNX vision model settings.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Integrations {
@@ -1263,6 +1269,13 @@ pub struct Integrations {
     /// Port ([`migrate_integrations`]); not in the dialog. With the flag the ArtCraft Launcher's
     /// switch decides instead.
     pub connect_agents: bool,
+    /// Run installed local ONNX vision models for Select Subject, Remove Background, Object
+    /// Selection and Select Sky (off by default; falls back to classical algorithms otherwise).
+    pub enable_local_models: bool,
+    /// Hardware backend (`auto`, `gpu` or `cpu`) for local ONNX inference.
+    pub ml_backend: MlBackend,
+    /// Optional custom folder scanned for `.onnx` models; empty uses the app's `Models` folder.
+    pub models_folder: String,
 }
 
 choice!(
@@ -1973,6 +1986,7 @@ impl Session {
         // Without waiting for the system font scan: this runs on the UI thread at launch.
         photocraft_text::set_shared_missing_glyph_protection(self.prefs().type_.missing_glyph_protection());
         crate::plugin_cmds::sync_prefs(self);
+        crate::ml_cmds::sync_prefs(self);
     }
 
     /// Re-apply History's byte limit after the scratch disk paused (a write, create or

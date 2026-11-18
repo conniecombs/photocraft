@@ -288,9 +288,11 @@ pub(crate) fn take(app: &mut PhotocraftApp, ctx: &egui::Context) {
         _ => Vec::new(),
     };
     let mut picked = None;
+    let mut ml_cmds = Vec::new();
     if let Some(dialog) = app.framework.dialogs.get_mut::<PrefsDialog>() {
         batches.append(&mut dialog.edits);
         picked = dialog.pick.take();
+        ml_cmds = dialog.custom.take_ml_commands();
     } else {
         crate::color_picker_ui::cancel_window_picker(app, ctx, PickWindow::Preferences);
     }
@@ -301,6 +303,13 @@ pub(crate) fn take(app: &mut PhotocraftApp, ctx: &egui::Context) {
         && let Some(doc) = app.framework.dialogs.get_mut::<PrefsDialog>().and_then(|d| d.doc.as_mut())
     {
         doc.set_color(&key, color);
+    }
+    for (cmd, params) in ml_cmds {
+        if let Err(error) = app.run(cmd, params)
+            && let Some(dialog) = app.framework.dialogs.get_mut::<PrefsDialog>()
+        {
+            dialog.state.error = Some(error);
+        }
     }
     if let Err(error) = write_all(app, batches)
         && let Some(dialog) = app.framework.dialogs.get_mut::<PrefsDialog>()
